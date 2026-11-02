@@ -524,4 +524,17 @@ public class Human extends Character {
         g.setFont(new Font("Arial", Font.BOLD, 10));
         g.drawString(label, getX() - 5, getY() + size + 12);
     }
+    
+    /**
+     * Restore health when an automatic Healing Circle is activated.
+     * Health cannot exceed the maximum of 100.
+     */
+    public void restoreSpellHealth(int amount) {
+        if (!isAlive() || amount <= 0) {
+            return;
+        }
+
+        health = Math.min(100, health + amount);
+    }
+
 }
