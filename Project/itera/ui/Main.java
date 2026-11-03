@@ -1,5 +1,3 @@
-
-
 package itera.ui;
 
 import itera.model.*;
@@ -28,6 +26,15 @@ public class Main extends JPanel {
     private static final int BASE_ZOMBIES_PER_WAVE = 9;
     private static final int ZOMBIES_ADDED_PER_WAVE = 3;
 
+    // Emergency drops use simulation time, so pausing freezes the countdown.
+    private static final long DROP_MIN_INTERVAL = 30_000L;
+    private static final int DROP_EXTRA_INTERVAL = 15_001;
+    private static final long DROP_LIFETIME = 25_000L;
+    private static final long DROP_ALERT_DURATION = 4_000L;
+    private static final int DROP_MARGIN = 65;
+    private static final int DROP_CLEARANCE = 35;
+    private static final int DROP_PLACEMENT_ATTEMPTS = 80;
+
     private final Random random = new Random();
 
     private final World world;
@@ -36,6 +43,9 @@ public class Main extends JPanel {
     private final FastForward fastForward;
     private final JButton pauseButton;
     private final SimulationSettings settings;
+
+    // Live tactical radar beside the scrollable battlefield.
+    private TacticalMiniMap tacticalMiniMap;
 
     private final ArrayList<Building> buildings =
         new ArrayList<>();
@@ -48,6 +58,12 @@ public class Main extends JPanel {
 
     private long lastWaveTime;
     private int waveNumber = 1;
+
+    private long nextSupplyDropTime;
+    private long supplyDropAlertUntil;
+
+    // Zombie type leading the current wave, or null for the first and boss waves.
+    private ZombieType featuredType;
     
     // AUTOMATIC BATTLE SPELLS
     private static final long AIRSTRIKE_COOLDOWN = 20000;
@@ -130,7 +146,6 @@ public class Main extends JPanel {
     private final JLabel safeZoneThreat =
         new JLabel("Safe Zone: SAFE (0 nearby)", SwingConstants.CENTER);
 
-    // NEW: Live zombie type breakdown.
     private final JLabel zombieTypeSummary =
         new JLabel("Zombie Types: Loading...", SwingConstants.CENTER);
 
@@ -178,22 +193,15 @@ public class Main extends JPanel {
             safeZoneThreat.setForeground(new Color(183, 28, 28));
         }
 
-        // NEW: Count the living zombies in each category.
-        Map<String, Long> typeCounts =
-            world.getLivingZombieTypeCounts();
+        // Show the current number of living zombies by type.
+        Map<String, Long> typeCounts = world.getLivingZombieTypeCounts();
 
         String breakdown = typeCounts.entrySet()
             .stream()
-            .map(entry ->
-                entry.getKey() + ": " + entry.getValue()
-            )
-            .collect(
-                java.util.stream.Collectors.joining("   |   ")
-            );
+            .map(entry -> entry.getKey() + ": " + entry.getValue())
+            .collect(java.util.stream.Collectors.joining("   |   "));
 
-        zombieTypeSummary.setText(
-            "Zombie Types  |  " + breakdown
-        );
+        zombieTypeSummary.setText("Zombie Types  |  " + breakdown);
     }
 
     public Main() {
@@ -210,6 +218,7 @@ public class Main extends JPanel {
 
         world = new World();
         survivalStartTime = world.getTime();
+        nextSupplyDropTime = world.getTime() + nextSupplyDropDelay();
 
         // SAFE POINT
         safePoint = new SafePoint(
@@ -294,7 +303,7 @@ public class Main extends JPanel {
                 + (i / zombieColumns) * 70;
 
             Zombie zombie = ZombieSpawns.atType(
-                i % 4,
+                i % ZombieSpawns.typeCount(),
                 x,
                 y
             );
@@ -467,7 +476,7 @@ public class Main extends JPanel {
         waveNumber++;
 
         boolean bossWave =
-            waveNumber % 5 == 0;
+            WaveRotation.isBossWave(waveNumber);
 
         ZombieWave wave;
 
@@ -485,11 +494,15 @@ public class Main extends JPanel {
                     + (waveNumber - 1)
                     * ZOMBIES_ADDED_PER_WAVE;
 
-            wave = new ZombieWave(
+            // Each normal wave is led by a different zombie type.
+            wave = ZombieWave.featuring(
                 zombiesThisWave,
-                false
+                WaveRotation.featuredFor(waveNumber).orElseThrow(),
+                random
             );
         }
+
+        featuredType = wave.getFeaturedType().orElse(null);
 
         // SPAWN POINTS
         wave.addSpawnPoint(
@@ -547,6 +560,60 @@ public class Main extends JPanel {
 
             world.addCharacter(human);
         }
+    }
+
+    /** Random delay between supply drops, in simulation milliseconds. */
+    private long nextSupplyDropDelay() {
+        return DROP_MIN_INTERVAL + random.nextInt(DROP_EXTRA_INTERVAL);
+    }
+
+    /**
+     * Find a landing site on open terrain, away from buildings and the Safe Zone.
+     * The attempt limit prevents a loop if the map has no suitable locations.
+     */
+    private Point findSupplyDropLanding() {
+        for (int attempt = 0; attempt < DROP_PLACEMENT_ATTEMPTS; attempt++) {
+            int x = DROP_MARGIN + random.nextInt(WORLD_WIDTH - DROP_MARGIN * 2);
+            int y = DROP_MARGIN + random.nextInt(WORLD_HEIGHT - DROP_MARGIN * 2);
+
+            int clearanceSize = DROP_CLEARANCE * 2;
+            if (safePoint.contains(x - DROP_CLEARANCE, y - DROP_CLEARANCE,
+                    clearanceSize)) {
+                continue;
+            }
+
+            boolean insideBuilding = buildings.stream().anyMatch(building ->
+                building.overlaps(x - DROP_CLEARANCE, y - DROP_CLEARANCE,
+                    clearanceSize));
+
+            if (!insideBuilding) {
+                return new Point(x, y);
+            }
+        }
+        return null;
+    }
+
+    /** Spawn temporary emergency medicine on a simulation-time schedule. */
+    private void updateTimedSupplyDrops() {
+        long now = world.getTime();
+        if (now < nextSupplyDropTime) {
+            return;
+        }
+
+        nextSupplyDropTime = now + nextSupplyDropDelay();
+
+        // Only one supply crate should be available at a time.
+        if (!world.getActiveEmergencySupplyDrops().isEmpty()) {
+            return;
+        }
+
+        Point landing = findSupplyDropLanding();
+        if (landing == null) {
+            return;
+        }
+
+        world.spawnEmergencySupplyDrop(landing.x, landing.y, DROP_LIFETIME);
+        supplyDropAlertUntil = now + DROP_ALERT_DURATION;
     }
 
     // Detect groups of zombies and schedule automatic airstrikes.
@@ -705,6 +772,9 @@ public class Main extends JPanel {
         // SPAWN TIMED WAVES
         updateTimedWaves();
 
+        // Spawn temporary emergency medicine at valid landing locations.
+        updateTimedSupplyDrops();
+
         // MUTANT BOSS SPECIAL ABILITIES
         // Ground Smash and Zombie Summoning
         world.updateBossAbilities();
@@ -718,6 +788,7 @@ public class Main extends JPanel {
 
         var humans = world.getHumans();
         var zombies = world.getZombies();
+        var activeDrops = world.getActiveEmergencySupplyDrops();
 
         // UPDATE HUMANS
         for (Human human : humans) {
@@ -726,6 +797,11 @@ public class Main extends JPanel {
                 buildings,
                 humans
             );
+
+            // Medics without medicine can head towards a nearby supply crate.
+            if (human instanceof Medic medic) {
+                medic.setEmergencySupplyDrops(activeDrops);
+            }
 
             human.update(
                 getWidth(),
@@ -824,6 +900,11 @@ public class Main extends JPanel {
 
         // REFRESH POPULATION INFORMATION
         refreshPopulationSummary();
+
+        // Refresh the tactical radar after each simulation update.
+        if (tacticalMiniMap != null) {
+            tacticalMiniMap.refresh();
+        }
 
         // END CONDITION
         if (world.getHumans().isEmpty()) {
@@ -973,6 +1054,18 @@ public class Main extends JPanel {
 
         addLegendItem(
             legend,
+            "BR Brute",
+            new Color(78, 52, 46)
+        );
+
+        addLegendItem(
+            legend,
+            "SP Spitter",
+            new Color(104, 159, 56)
+        );
+
+        addLegendItem(
+            legend,
             "BOSS Mutant boss",
             new Color(74, 20, 140)
         );
@@ -1086,6 +1179,13 @@ public class Main extends JPanel {
             && secondsUntilNextWave <= 5;
     }
 
+    /** HUD wave text, for example "Wave: 3 (Stalker wave)". */
+    private static String waveLabel(int waveNumber, ZombieType featured) {
+        return featured == null
+            ? "Wave: " + waveNumber
+            : "Wave: " + waveNumber + " (" + featured.getLabel() + " wave)";
+    }
+
     /** Time remaining until the next wave. */
     private long getNextWaveSeconds() {
 
@@ -1133,6 +1233,11 @@ public class Main extends JPanel {
         // RESOURCES
         for (Resource resource : resources) {
             resource.draw(g);
+        }
+
+        // Draw temporary supply crates on the battlefield.
+        for (EmergencySupplyDrop drop : world.getActiveEmergencySupplyDrops()) {
+            drop.draw(g, world.getTime());
         }
 
         // SAFE POINT
@@ -1211,7 +1316,7 @@ public class Main extends JPanel {
             "Survived: " + getSurvivalTime();
 
         String waveText =
-            "Wave: " + waveNumber;
+            waveLabel(waveNumber, featuredType);
 
         String nextWaveText =
             "Next wave: "
@@ -1287,6 +1392,15 @@ public class Main extends JPanel {
             currentX,
             textY
         );
+
+        // Brief notification when a new emergency crate arrives.
+        if (world.getTime() < supplyDropAlertUntil) {
+            g.setColor(new Color(153, 98, 0));
+            g.setFont(new Font("Arial", Font.BOLD, 18));
+            String alert = "EMERGENCY MEDICAL SUPPLIES DROPPED - CHECK RADAR";
+            int alertX = (getWidth() - g.getFontMetrics().stringWidth(alert)) / 2;
+            g.drawString(alert, alertX, 100);
+        }
 
         // PAUSE OVERLAY
         if (paused) {
@@ -1407,8 +1521,9 @@ public class Main extends JPanel {
         JScrollPane scrollPane =
             new JScrollPane(simulation);
 
+        // Leave room on the right for the tactical mini-map.
         scrollPane.setPreferredSize(
-            new Dimension(1100, 600)
+            new Dimension(900, 600)
         );
 
         scrollPane.setHorizontalScrollBarPolicy(
@@ -1422,6 +1537,50 @@ public class Main extends JPanel {
         frame.add(
             scrollPane,
             BorderLayout.CENTER
+        );
+
+        // Interactive tactical radar:
+        // stays visible while scrolling the battlefield.
+        simulation.tacticalMiniMap = new TacticalMiniMap(
+            simulation.world,
+            scrollPane,
+            WORLD_WIDTH,
+            WORLD_HEIGHT,
+            new Rectangle(
+                0,
+                0,
+                BUILDING_SIZE,
+                BUILDING_SIZE
+            ),
+            java.util.List.of(
+                new Rectangle(
+                    WORLD_WIDTH - BUILDING_SIZE,
+                    0,
+                    BUILDING_SIZE,
+                    BUILDING_SIZE
+                ),
+                new Rectangle(
+                    0,
+                    WORLD_HEIGHT
+                        - BUILDING_SIZE
+                        - BOTTOM_BUILDING_OFFSET,
+                    BUILDING_SIZE,
+                    BUILDING_SIZE
+                ),
+                new Rectangle(
+                    WORLD_WIDTH - BUILDING_SIZE,
+                    WORLD_HEIGHT
+                        - BUILDING_SIZE
+                        - BOTTOM_BUILDING_OFFSET,
+                    BUILDING_SIZE,
+                    BUILDING_SIZE
+                )
+            )
+        );
+
+        frame.add(
+            simulation.tacticalMiniMap,
+            BorderLayout.EAST
         );
 
         // CONTROLS BELOW GAME

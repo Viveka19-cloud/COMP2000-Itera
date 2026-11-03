@@ -7,6 +7,7 @@ import itera.model.human.*;
 import itera.model.zombie.*;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.function.Predicate;
 
 public class World {
@@ -59,6 +60,10 @@ public class World {
     private ArrayList<SafePoint> safePoints = new ArrayList<>();
     private ArrayList<ZombieWave> waves = new ArrayList<>();
 
+    // NEW: Track temporary emergency supply drops.
+    private final ArrayList<EmergencySupplyDrop> emergencySupplyDrops =
+        new ArrayList<>();
+
     public void addCharacter(Character character) {
         character.setTimeSource(this::getTime);
 
@@ -84,6 +89,81 @@ public class World {
 
     public void addWave(ZombieWave wave) {
         waves.add(wave);
+    }
+
+    /**
+     * NEW FEATURE: Emergency Supply Drop System.
+     *
+     * Create a temporary medical supply drop at the
+     * requested battlefield location.
+     *
+     * The drop uses simulation time, so pausing the
+     * simulation does not make it expire.
+     */
+    public EmergencySupplyDrop spawnEmergencySupplyDrop(
+            int x,
+            int y,
+            long duration) {
+
+        EmergencySupplyDrop drop = new EmergencySupplyDrop(
+            x,
+            y,
+            getTime(),
+            duration
+        );
+
+        emergencySupplyDrops.add(drop);
+
+        return drop;
+    }
+
+    /**
+     * Return a read-only snapshot of currently active drops.
+     *
+     * Expired and collected drops are excluded.
+     */
+    public List<EmergencySupplyDrop> getActiveEmergencySupplyDrops() {
+
+        long now = getTime();
+
+        return emergencySupplyDrops.stream()
+            .filter(drop -> drop.isActive(now))
+            .toList();
+    }
+
+    /**
+     * Update emergency supply drops.
+     *
+     * Eligible survivors standing near a drop may
+     * collect its medicine using the existing
+     * Human.interact() method.
+     *
+     * Collected and expired drops are removed.
+     */
+    private void updateEmergencySupplyDrops() {
+
+        long now = getTime();
+
+        ArrayList<Human> humans = getHumans();
+
+        for (EmergencySupplyDrop drop : emergencySupplyDrops) {
+
+            if (!drop.isActive(now)) {
+                continue;
+            }
+
+            for (Human human : humans) {
+
+                if (drop.tryCollect(human, now)) {
+                    // Only one survivor can collect each drop.
+                    break;
+                }
+            }
+        }
+
+        emergencySupplyDrops.removeIf(
+            drop -> !drop.isActive(now)
+        );
     }
 
     /**
@@ -155,6 +235,9 @@ public class World {
 
         // Remove dead characters.
         characters.removeIf(character -> !character.isAlive());
+
+        // NEW: Collect or expire emergency supply drops.
+        updateEmergencySupplyDrops();
     }
 
     public void spawnWave(ZombieWave wave) {
@@ -272,61 +355,33 @@ public class World {
                 Collectors.counting()
             ));
 
-        // Maintain a consistent order for the interface.
+        // Maintain a consistent order for the interface:
+        // every ZombieType in enum order, then the boss.
         Map<String, Long> counts = new LinkedHashMap<>();
 
-        counts.put(
-            "Standard",
-            totals.getOrDefault("Standard", 0L)
-        );
-
-        counts.put(
-            "Runner",
-            totals.getOrDefault("Runner", 0L)
-        );
-
-        counts.put(
-            "Stalker",
-            totals.getOrDefault("Stalker", 0L)
-        );
-
-        counts.put(
-            "Bloater",
-            totals.getOrDefault("Bloater", 0L)
-        );
-
-        counts.put(
-            "Boss",
-            totals.getOrDefault("Boss", 0L)
-        );
+        Stream.concat(
+                Arrays.stream(ZombieType.values()).map(ZombieType::getLabel),
+                Stream.of(BOSS_LABEL))
+            .forEach(label ->
+                counts.put(label, totals.getOrDefault(label, 0L))
+            );
 
         return Collections.unmodifiableMap(counts);
     }
 
+    private static final String BOSS_LABEL = "Boss";
+
     /**
      * Identify the correct zombie type.
      *
-     * Bosses and specialised zombies are checked
-     * before falling back to the standard zombie type.
+     * The boss is not a ZombieType, so it is checked first.
      */
     private static String zombieTypeLabel(Zombie zombie) {
 
         if (zombie instanceof MutantBoss) {
-            return "Boss";
+            return BOSS_LABEL;
         }
 
-        if (zombie instanceof Runner) {
-            return "Runner";
-        }
-
-        if (zombie instanceof Stalker) {
-            return "Stalker";
-        }
-
-        if (zombie instanceof Bloater) {
-            return "Bloater";
-        }
-
-        return "Standard";
+        return ZombieType.of(zombie).getLabel();
     }
 }
