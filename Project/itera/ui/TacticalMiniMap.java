@@ -5,6 +5,7 @@ import itera.model.human.Human;
 import itera.model.zombie.MutantBoss;
 import itera.model.zombie.Zombie;
 import itera.simulation.World;
+import itera.simulation.EmergencySupplyDrop;
 
 import javax.swing.*;
 import javax.swing.event.ChangeListener;
@@ -31,6 +32,7 @@ public final class TacticalMiniMap extends JPanel {
     private static final Color HUMAN = new Color(74, 224, 168);
     private static final Color ZOMBIE = new Color(255, 93, 103);
     private static final Color BOSS = new Color(207, 139, 255);
+    private static final Color SUPPLY = new Color(255, 202, 75);
 
     private static final int EXPANDED_WIDTH = 256;
     private static final int COLLAPSED_WIDTH = 48;
@@ -46,6 +48,7 @@ public final class TacticalMiniMap extends JPanel {
     private final JLabel heading = new JLabel("TACTICAL RADAR");
     private final JLabel live = new JLabel("● LIVE");
     private final JLabel population = new JLabel();
+    private final JLabel supplies = new JLabel();
     private final JButton collapse = new JButton("◀");
     private boolean expanded = true;
 
@@ -109,6 +112,11 @@ public final class TacticalMiniMap extends JPanel {
         population.setFont(new Font("SansSerif", Font.BOLD, 12));
         population.setAlignmentX(Component.LEFT_ALIGNMENT);
         contents.add(population);
+        contents.add(Box.createVerticalStrut(6));
+        supplies.setForeground(SUPPLY);
+        supplies.setFont(new Font("SansSerif", Font.BOLD, 11));
+        supplies.setAlignmentX(Component.LEFT_ALIGNMENT);
+        contents.add(supplies);
         contents.add(Box.createVerticalStrut(13));
 
         JPanel legend = new JPanel(new GridLayout(0, 2, 8, 12));
@@ -119,6 +127,7 @@ public final class TacticalMiniMap extends JPanel {
         legend.add(legendLabel("● Zombies", ZOMBIE));
         legend.add(legendLabel("● Bosses", BOSS));
         legend.add(legendLabel("▣ Viewport", CYAN));
+        legend.add(legendLabel("◆ Supply drop", SUPPLY));
         contents.add(legend);
         contents.add(Box.createVerticalStrut(14));
 
@@ -161,6 +170,8 @@ public final class TacticalMiniMap extends JPanel {
         long humans = world.getHumans().stream().filter(Human::isAlive).count();
         long zombies = world.getZombies().stream().filter(Zombie::isAlive).count();
         population.setText("SURVIVORS " + humans + "   •   HOSTILES " + zombies);
+        supplies.setText("ACTIVE SUPPLY DROPS  "
+            + world.getActiveEmergencySupplyDrops().size());
         radar.repaint();
     }
 
@@ -257,6 +268,19 @@ public final class TacticalMiniMap extends JPanel {
                     int r = person instanceof Zombie ? 3 : 2;
                     g.fillOval(px(person.getX() + person.getSize()/2.0) - r,
                         py(person.getY() + person.getSize()/2.0) - r, r * 2, r * 2);
+                }
+
+                // Highlight available emergency medicine with golden diamonds.
+                for (EmergencySupplyDrop drop : world.getActiveEmergencySupplyDrops()) {
+                    int x = px(drop.getX() + 7);
+                    int y = py(drop.getY() + 7);
+                    g.setColor(new Color(255, 202, 75, 70));
+                    g.fillOval(x - 7, y - 7, 14, 14);
+                    g.setColor(SUPPLY);
+                    g.fillPolygon(new int[] {x, x + 4, x, x - 4},
+                        new int[] {y - 5, y, y + 5, y}, 4);
+                    g.setColor(Color.WHITE);
+                    g.drawOval(x - 5, y - 5, 10, 10);
                 }
 
                 for (Zombie zombie : world.getZombies()) {

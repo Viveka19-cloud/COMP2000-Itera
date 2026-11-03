@@ -1,4 +1,3 @@
-
 package itera.ui;
 
 import itera.model.*;
@@ -24,6 +23,15 @@ public class Main extends JPanel {
     private static final int BASE_ZOMBIES_PER_WAVE = 9;
     private static final int ZOMBIES_ADDED_PER_WAVE = 3;
 
+    // Emergency drops use simulation time, so pausing freezes the countdown.
+    private static final long DROP_MIN_INTERVAL = 30_000L;
+    private static final int DROP_EXTRA_INTERVAL = 15_001;
+    private static final long DROP_LIFETIME = 25_000L;
+    private static final long DROP_ALERT_DURATION = 4_000L;
+    private static final int DROP_MARGIN = 65;
+    private static final int DROP_CLEARANCE = 35;
+    private static final int DROP_PLACEMENT_ATTEMPTS = 80;
+
     private final Random random = new Random();
 
     private final World world;
@@ -47,6 +55,9 @@ public class Main extends JPanel {
 
     private long lastWaveTime;
     private int waveNumber = 1;
+
+    private long nextSupplyDropTime;
+    private long supplyDropAlertUntil;
 
     // Zombie type leading the current wave, or null for the first and boss waves.
     private ZombieType featuredType;
@@ -129,6 +140,7 @@ public class Main extends JPanel {
 
         world = new World();
         survivalStartTime = world.getTime();
+        nextSupplyDropTime = world.getTime() + nextSupplyDropDelay();
 
         // SAFE POINT
         safePoint = new SafePoint(
@@ -472,6 +484,60 @@ public class Main extends JPanel {
         }
     }
 
+    /** Random delay between supply drops, in simulation milliseconds. */
+    private long nextSupplyDropDelay() {
+        return DROP_MIN_INTERVAL + random.nextInt(DROP_EXTRA_INTERVAL);
+    }
+
+    /**
+     * Find a landing site on open terrain, away from buildings and the Safe Zone.
+     * The attempt limit prevents a loop if the map has no suitable locations.
+     */
+    private Point findSupplyDropLanding() {
+        for (int attempt = 0; attempt < DROP_PLACEMENT_ATTEMPTS; attempt++) {
+            int x = DROP_MARGIN + random.nextInt(WORLD_WIDTH - DROP_MARGIN * 2);
+            int y = DROP_MARGIN + random.nextInt(WORLD_HEIGHT - DROP_MARGIN * 2);
+
+            int clearanceSize = DROP_CLEARANCE * 2;
+            if (safePoint.contains(x - DROP_CLEARANCE, y - DROP_CLEARANCE,
+                    clearanceSize)) {
+                continue;
+            }
+
+            boolean insideBuilding = buildings.stream().anyMatch(building ->
+                building.overlaps(x - DROP_CLEARANCE, y - DROP_CLEARANCE,
+                    clearanceSize));
+
+            if (!insideBuilding) {
+                return new Point(x, y);
+            }
+        }
+        return null;
+    }
+
+    /** Spawn temporary emergency medicine on a simulation-time schedule. */
+    private void updateTimedSupplyDrops() {
+        long now = world.getTime();
+        if (now < nextSupplyDropTime) {
+            return;
+        }
+
+        nextSupplyDropTime = now + nextSupplyDropDelay();
+
+        // Only one supply crate should be available at a time.
+        if (!world.getActiveEmergencySupplyDrops().isEmpty()) {
+            return;
+        }
+
+        Point landing = findSupplyDropLanding();
+        if (landing == null) {
+            return;
+        }
+
+        world.spawnEmergencySupplyDrop(landing.x, landing.y, DROP_LIFETIME);
+        supplyDropAlertUntil = now + DROP_ALERT_DURATION;
+    }
+
     /**
      * Update the entire simulation.
      */
@@ -490,6 +556,9 @@ public class Main extends JPanel {
         // SPAWN TIMED WAVES
         updateTimedWaves();
 
+        // Spawn temporary emergency medicine at valid landing locations.
+        updateTimedSupplyDrops();
+
         // MUTANT BOSS SPECIAL ABILITIES
         // Ground Smash and Zombie Summoning
         world.updateBossAbilities();
@@ -503,6 +572,7 @@ public class Main extends JPanel {
 
         var humans = world.getHumans();
         var zombies = world.getZombies();
+        var activeDrops = world.getActiveEmergencySupplyDrops();
 
         // UPDATE HUMANS
         for (Human human : humans) {
@@ -511,6 +581,11 @@ public class Main extends JPanel {
                 buildings,
                 humans
             );
+
+            // Medics without medicine can head towards a nearby supply crate.
+            if (human instanceof Medic medic) {
+                medic.setEmergencySupplyDrops(activeDrops);
+            }
 
             human.update(
                 getWidth(),
@@ -933,6 +1008,11 @@ public class Main extends JPanel {
             resource.draw(g);
         }
 
+        // Draw temporary supply crates on the battlefield.
+        for (EmergencySupplyDrop drop : world.getActiveEmergencySupplyDrops()) {
+            drop.draw(g, world.getTime());
+        }
+
         // SAFE POINT
         safePoint.draw(g);
 
@@ -1051,6 +1131,15 @@ public class Main extends JPanel {
             currentX,
             textY
         );
+
+        // Brief notification when a new emergency crate arrives.
+        if (world.getTime() < supplyDropAlertUntil) {
+            g.setColor(new Color(153, 98, 0));
+            g.setFont(new Font("Arial", Font.BOLD, 18));
+            String alert = "EMERGENCY MEDICAL SUPPLIES DROPPED - CHECK RADAR";
+            int alertX = (getWidth() - g.getFontMetrics().stringWidth(alert)) / 2;
+            g.drawString(alert, alertX, 100);
+        }
 
         // PAUSE OVERLAY
         if (paused) {

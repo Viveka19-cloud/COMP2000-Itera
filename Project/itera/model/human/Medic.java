@@ -3,6 +3,7 @@ package itera.model.human;
 import itera.model.*;
 import itera.model.Character;
 import itera.model.zombie.*;
+import itera.simulation.EmergencySupplyDrop;
 import java.awt.*;
 import java.util.*;
 
@@ -20,6 +21,14 @@ public class Medic extends Human {
 
     private long lastHealTime;
     private long healingUntil;
+
+    // The world supplies a current snapshot each simulation tick.
+    private java.util.List<EmergencySupplyDrop> emergencySupplyDrops = java.util.List.of();
+
+    public void setEmergencySupplyDrops(java.util.List<EmergencySupplyDrop> drops) {
+        emergencySupplyDrops = java.util.List.copyOf(
+            Objects.requireNonNull(drops, "Supply drops are required"));
+    }
 
     public Medic(int x, int y) { super(x, y); }
 
@@ -80,6 +89,27 @@ public class Medic extends Human {
             }
             return false;
         }
+
+        // Prioritise a reachable emergency drop when this medic has no kits.
+        EmergencySupplyDrop nearestDrop = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (EmergencySupplyDrop drop : emergencySupplyDrops) {
+            if (!drop.isActive(now()) || !canCollect(drop.getMedicine())) {
+                continue;
+            }
+            double distance = position.distanceTo(
+                new Vector2D(drop.getX(), drop.getY()));
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestDrop = drop;
+            }
+        }
+        if (nearestDrop != null) {
+            moveTowards(new Vector2D(nearestDrop.getX(), nearestDrop.getY()));
+            return true;
+        }
+
+        // If there is no active emergency drop, use the hospital as before.
         for (Building building : buildings) {
             if (!(building instanceof Hospital)) continue;
             Resource pickup = null;
