@@ -1,3 +1,4 @@
+
 package itera.ui;
 
 import itera.model.*;
@@ -26,7 +27,7 @@ public class Main extends JPanel {
     private static final int BASE_ZOMBIES_PER_WAVE = 9;
     private static final int ZOMBIES_ADDED_PER_WAVE = 3;
 
-    // Emergency drops use simulation time, so pausing freezes the countdown.
+    // Emergency drops use simulation time.
     private static final long DROP_MIN_INTERVAL = 30_000L;
     private static final int DROP_EXTRA_INTERVAL = 15_001;
     private static final long DROP_LIFETIME = 25_000L;
@@ -44,7 +45,6 @@ public class Main extends JPanel {
     private final JButton pauseButton;
     private final SimulationSettings settings;
 
-    // Live tactical radar beside the scrollable battlefield.
     private TacticalMiniMap tacticalMiniMap;
 
     private final ArrayList<Building> buildings =
@@ -62,20 +62,17 @@ public class Main extends JPanel {
     private long nextSupplyDropTime;
     private long supplyDropAlertUntil;
 
-    // Zombie type leading the current wave, or null for the first and boss waves.
     private ZombieType featuredType;
-    
+
     // AUTOMATIC BATTLE SPELLS
     private static final long AIRSTRIKE_COOLDOWN = 20000;
     private static final long AIRSTRIKE_WARNING = 1000;
     private static final int AIRSTRIKE_TRIGGER_COUNT = 5;
     private static final double AIRSTRIKE_DETECTION_RADIUS = 150;
 
-    // Track each soldier's airstrike cooldown
     private final Map<Soldier, Long> lastAirstrikeTimes =
         new HashMap<>();
 
-    // Airstrikes waiting to explode
     private final ArrayList<PendingAirstrike> pendingAirstrikes =
         new ArrayList<>();
 
@@ -97,25 +94,34 @@ public class Main extends JPanel {
         }
     }
 
-
-    // Independent cooldowns for medics and poison-casting bloaters.
+    // Healing and poison spells
     private static final long HEAL_COOLDOWN = 15000;
     private static final long POISON_COOLDOWN = 18000;
     private static final long POISON_DURATION = 3500;
-    // Prevent all special effects from firing at the start.
     private static final long INITIAL_SPELL_DELAY = 8000;
     private static final int MAX_ACTIVE_POISONS = 1;
-    private final Map<Medic, Long> lastHealSpellTimes = new HashMap<>();
-    private final Map<Bloater, Long> lastPoisonSpellTimes = new HashMap<>();
-    private final ArrayList<ActivePoison> activePoisons = new ArrayList<>();
-    private final ArrayList<SpellVisual> spellVisuals = new ArrayList<>();
-    private final JLabel battleEvents = new JLabel("Battle Spells: Ready", SwingConstants.CENTER);
+
+    private final Map<Medic, Long> lastHealSpellTimes =
+        new HashMap<>();
+
+    private final Map<Bloater, Long> lastPoisonSpellTimes =
+        new HashMap<>();
+
+    private final ArrayList<ActivePoison> activePoisons =
+        new ArrayList<>();
+
+    private final ArrayList<SpellVisual> spellVisuals =
+        new ArrayList<>();
+
+    private final JLabel battleEvents =
+        new JLabel("Battle Spells: Ready", SwingConstants.CENTER);
 
     private static class ActivePoison {
         final PoisonCloudSpell spell;
         final int x, y;
         final long expiresAt;
         long nextTick;
+
         ActivePoison(int x, int y, long now) {
             this.spell = new PoisonCloudSpell(x, y);
             this.x = x;
@@ -130,7 +136,14 @@ public class Main extends JPanel {
         final Color color;
         final String label;
         final long expiresAt;
-        SpellVisual(int x, int y, int radius, Color color, String label, long expiresAt) {
+
+        SpellVisual(
+                int x,
+                int y,
+                int radius,
+                Color color,
+                String label,
+                long expiresAt) {
             this.x = x;
             this.y = y;
             this.radius = radius;
@@ -144,7 +157,7 @@ public class Main extends JPanel {
         new JLabel(" ", SwingConstants.CENTER);
 
     private final JLabel safeZoneThreat =
-        new JLabel("Safe Zone: SAFE (0 nearby)", SwingConstants.CENTER);
+        new JLabel("Shelter: SAFE (0 nearby)", SwingConstants.CENTER);
 
     private final JLabel zombieTypeSummary =
         new JLabel("Zombie Types: Loading...", SwingConstants.CENTER);
@@ -170,38 +183,44 @@ public class Main extends JPanel {
         populationSummary.setText(
             summary.isEmpty()
                 ? "No humans remaining"
-                : summary
+                : "<html>" + summary.replace("   |   ", "<br>") + "</html>"
         );
 
-        // Live Safe Zone Threat Alert.
-        long nearby = world.countZombiesNearSafePoint(safePoint, 150);
+        long nearby =
+            world.countZombiesNearSafePoint(safePoint, 150);
 
         if (nearby == 0) {
-            safeZoneThreat.setText("Safe Zone: SAFE (0 nearby)");
-            safeZoneThreat.setForeground(new Color(0, 110, 0));
+            safeZoneThreat.setText("Shelter: SAFE (0 nearby)");
+            safeZoneThreat.setForeground(new Color(100, 239, 128));
 
         } else if (nearby < 3) {
             safeZoneThreat.setText(
-                "Safe Zone: WARNING (" + nearby + " nearby)"
+                "Shelter: WARNING (" + nearby + " nearby)"
             );
-            safeZoneThreat.setForeground(new Color(196, 108, 0));
+            safeZoneThreat.setForeground(new Color(255, 196, 80));
 
         } else {
             safeZoneThreat.setText(
-                "Safe Zone: HIGH THREAT (" + nearby + " nearby)"
+                "Shelter: HIGH THREAT (" + nearby + " nearby)"
             );
-            safeZoneThreat.setForeground(new Color(183, 28, 28));
+            safeZoneThreat.setForeground(new Color(255, 106, 106));
         }
 
-        // Show the current number of living zombies by type.
-        Map<String, Long> typeCounts = world.getLivingZombieTypeCounts();
+        Map<String, Long> typeCounts =
+            world.getLivingZombieTypeCounts();
 
         String breakdown = typeCounts.entrySet()
             .stream()
-            .map(entry -> entry.getKey() + ": " + entry.getValue())
-            .collect(java.util.stream.Collectors.joining("   |   "));
+            .map(entry ->
+                entry.getKey() + ": " + entry.getValue()
+            )
+            .collect(
+                java.util.stream.Collectors.joining("   |   ")
+            );
 
-        zombieTypeSummary.setText("Zombie Types  |  " + breakdown);
+        zombieTypeSummary.setText(
+            "Zombie Types  |  " + breakdown
+        );
     }
 
     public Main() {
@@ -218,7 +237,9 @@ public class Main extends JPanel {
 
         world = new World();
         survivalStartTime = world.getTime();
-        nextSupplyDropTime = world.getTime() + nextSupplyDropDelay();
+
+        nextSupplyDropTime =
+            world.getTime() + nextSupplyDropDelay();
 
         // SAFE POINT
         safePoint = new SafePoint(
@@ -337,11 +358,7 @@ public class Main extends JPanel {
                 }
 
                 try {
-
-                    timer.setDelay(
-                        fastForward.getDelay()
-                    );
-
+                    timer.setDelay(fastForward.getDelay());
                     updateSimulation();
                     repaint();
 
@@ -394,17 +411,14 @@ public class Main extends JPanel {
             Human human;
 
             if (i < civilianCount) {
-
                 human = new Civilian(x, y);
 
             } else if (
                 i < civilianCount + soldierCount
             ) {
-
                 human = new Soldier(x, y);
 
             } else {
-
                 human = new Medic(x, y);
             }
 
@@ -419,7 +433,7 @@ public class Main extends JPanel {
             SimulationSettings.DEFAULT_ZOMBIES
         );
     }
-
+    
     /**
      * Find a valid position for a human.
      */
@@ -467,9 +481,7 @@ public class Main extends JPanel {
 
         long now = world.getTime();
 
-        if (
-            now - lastWaveTime < WAVE_INTERVAL
-        ) {
+        if (now - lastWaveTime < WAVE_INTERVAL) {
             return;
         }
 
@@ -572,30 +584,45 @@ public class Main extends JPanel {
      * The attempt limit prevents a loop if the map has no suitable locations.
      */
     private Point findSupplyDropLanding() {
+
         for (int attempt = 0; attempt < DROP_PLACEMENT_ATTEMPTS; attempt++) {
-            int x = DROP_MARGIN + random.nextInt(WORLD_WIDTH - DROP_MARGIN * 2);
-            int y = DROP_MARGIN + random.nextInt(WORLD_HEIGHT - DROP_MARGIN * 2);
+
+            int x = DROP_MARGIN
+                + random.nextInt(WORLD_WIDTH - DROP_MARGIN * 2);
+
+            int y = DROP_MARGIN
+                + random.nextInt(WORLD_HEIGHT - DROP_MARGIN * 2);
 
             int clearanceSize = DROP_CLEARANCE * 2;
-            if (safePoint.contains(x - DROP_CLEARANCE, y - DROP_CLEARANCE,
+
+            if (safePoint.contains(
+                    x - DROP_CLEARANCE,
+                    y - DROP_CLEARANCE,
                     clearanceSize)) {
                 continue;
             }
 
-            boolean insideBuilding = buildings.stream().anyMatch(building ->
-                building.overlaps(x - DROP_CLEARANCE, y - DROP_CLEARANCE,
-                    clearanceSize));
+            boolean insideBuilding = buildings.stream().anyMatch(
+                building -> building.overlaps(
+                    x - DROP_CLEARANCE,
+                    y - DROP_CLEARANCE,
+                    clearanceSize
+                )
+            );
 
             if (!insideBuilding) {
                 return new Point(x, y);
             }
         }
+
         return null;
     }
 
     /** Spawn temporary emergency medicine on a simulation-time schedule. */
     private void updateTimedSupplyDrops() {
+
         long now = world.getTime();
+
         if (now < nextSupplyDropTime) {
             return;
         }
@@ -608,161 +635,339 @@ public class Main extends JPanel {
         }
 
         Point landing = findSupplyDropLanding();
+
         if (landing == null) {
             return;
         }
 
-        world.spawnEmergencySupplyDrop(landing.x, landing.y, DROP_LIFETIME);
+        world.spawnEmergencySupplyDrop(
+            landing.x,
+            landing.y,
+            DROP_LIFETIME
+        );
+
         supplyDropAlertUntil = now + DROP_ALERT_DURATION;
     }
 
     // Detect groups of zombies and schedule automatic airstrikes.
     private void checkAutomaticAirstrikes(
-            ArrayList<Human> humans, ArrayList<Zombie> zombies, long now) {
+            ArrayList<Human> humans,
+            ArrayList<Zombie> zombies,
+            long now) {
+
         // Clear cooldown records for soldiers who are no longer alive.
-        lastAirstrikeTimes.keySet().removeIf(soldier -> !soldier.isAlive());
+        lastAirstrikeTimes.keySet().removeIf(
+            soldier -> !soldier.isAlive()
+        );
 
         for (Human human : humans) {
+
             if (!(human instanceof Soldier soldier)
-                    || !soldier.isAlive() || soldier.isSheltered()
+                    || !soldier.isAlive()
+                    || soldier.isSheltered()
                     || !soldier.isArmed()) {
                 continue;
             }
+
             Long lastUsed = lastAirstrikeTimes.get(soldier);
-            if (lastUsed != null && now - lastUsed < AIRSTRIKE_COOLDOWN) {
+
+            if (lastUsed != null
+                    && now - lastUsed < AIRSTRIKE_COOLDOWN) {
                 continue;
             }
 
             int count = 0;
             double totalX = 0;
             double totalY = 0;
+
             for (Zombie zombie : zombies) {
-                if (!zombie.isAlive()) continue;
-                if (soldier.getPosition().distanceTo(zombie.getPosition())
+
+                if (!zombie.isAlive()) {
+                    continue;
+                }
+
+                if (soldier.getPosition().distanceTo(
+                        zombie.getPosition())
                         <= AIRSTRIKE_DETECTION_RADIUS) {
+
                     count++;
-                    totalX += zombie.getX() + zombie.getSize() / 2.0;
-                    totalY += zombie.getY() + zombie.getSize() / 2.0;
+
+                    totalX += zombie.getX()
+                        + zombie.getSize() / 2.0;
+
+                    totalY += zombie.getY()
+                        + zombie.getSize() / 2.0;
                 }
             }
-            if (count < AIRSTRIKE_TRIGGER_COUNT) continue;
+
+            if (count < AIRSTRIKE_TRIGGER_COUNT) {
+                continue;
+            }
 
             int targetX = (int) (totalX / count);
             int targetY = (int) (totalY / count);
-            // Avoid scheduling several airstrikes at essentially the same spot.
+
+            // Avoid scheduling airstrikes at the same spot.
             boolean alreadyTargeted = false;
+
             for (PendingAirstrike pending : pendingAirstrikes) {
-                if (Math.hypot(pending.x - targetX, pending.y - targetY) < 100) {
+
+                if (Math.hypot(
+                        pending.x - targetX,
+                        pending.y - targetY) < 100) {
+
                     alreadyTargeted = true;
                     break;
                 }
             }
-            if (alreadyTargeted) continue;
 
-            pendingAirstrikes.add(new PendingAirstrike(
+            if (alreadyTargeted) {
+                continue;
+            }
+
+            pendingAirstrikes.add(
+                new PendingAirstrike(
                     new AirstrikeSpell(targetX, targetY),
-                    targetX, targetY, now + AIRSTRIKE_WARNING));
+                    targetX,
+                    targetY,
+                    now + AIRSTRIKE_WARNING
+                )
+            );
+
             lastAirstrikeTimes.put(soldier, now);
         }
     }
 
     // Detonate airstrikes after the one-second warning.
-    private void updatePendingAirstrikes(ArrayList<Zombie> zombies, long now) {
-        Iterator<PendingAirstrike> iterator = pendingAirstrikes.iterator();
+    private void updatePendingAirstrikes(
+            ArrayList<Zombie> zombies,
+            long now) {
+
+        Iterator<PendingAirstrike> iterator =
+            pendingAirstrikes.iterator();
+
         while (iterator.hasNext()) {
+
             PendingAirstrike pending = iterator.next();
+
             if (now >= pending.explosionTime) {
+
                 int hit = pending.spell.explode(zombies);
-                spellVisuals.add(new SpellVisual(pending.x, pending.y, 100,
-                        new Color(235, 80, 15), "BOOM! (" + hit + ")", now + 650));
-                battleEvents.setText("Battle Spells: Airstrike hit " + hit + " zombies");
+
+                spellVisuals.add(
+                    new SpellVisual(
+                        pending.x,
+                        pending.y,
+                        100,
+                        new Color(235, 80, 15),
+                        "BOOM! (" + hit + ")",
+                        now + 650
+                    )
+                );
+
+                battleEvents.setText(
+                    "Battle Spells: Airstrike hit "
+                        + hit + " zombies"
+                );
+
                 iterator.remove();
             }
         }
     }
 
     // Medics cast a healing circle when three or more allies are wounded nearby.
-    private void updateHealingSpells(ArrayList<Human> humans, long now) {
-        if (now - survivalStartTime < INITIAL_SPELL_DELAY) return;
+    private void updateHealingSpells(
+            ArrayList<Human> humans,
+            long now) {
+
+        if (now - survivalStartTime < INITIAL_SPELL_DELAY) {
+            return;
+        }
+
         // A healing circle is already on screen; wait for it to fade.
         for (SpellVisual visual : spellVisuals) {
-            if (visual.label.startsWith("HEAL") && now < visual.expiresAt) return;
-        }
-        lastHealSpellTimes.keySet().removeIf(medic -> !medic.isAlive());
-        for (Human human : humans) {
-            if (!(human instanceof Medic medic) || !medic.isAlive() || medic.isSheltered()) continue;
-            Long last = lastHealSpellTimes.get(medic);
-            if (last != null && now - last < HEAL_COOLDOWN) continue;
-            int count = 0;
-            for (Human ally : humans) {
-                if (!ally.isAlive() || ally.isSheltered() || ally.getHealth() >= 100) continue;
-                if (Math.hypot(ally.getX() - medic.getX(), ally.getY() - medic.getY()) <= 105) count++;
+
+            if (visual.label.startsWith("HEAL")
+                    && now < visual.expiresAt) {
+                return;
             }
-            if (count < 3) continue;
+        }
+
+        lastHealSpellTimes.keySet().removeIf(
+            medic -> !medic.isAlive()
+        );
+
+        for (Human human : humans) {
+
+            if (!(human instanceof Medic medic)
+                    || !medic.isAlive()
+                    || medic.isSheltered()) {
+                continue;
+            }
+
+            Long last = lastHealSpellTimes.get(medic);
+
+            if (last != null && now - last < HEAL_COOLDOWN) {
+                continue;
+            }
+
+            int count = 0;
+
+            for (Human ally : humans) {
+
+                if (!ally.isAlive()
+                        || ally.isSheltered()
+                        || ally.getHealth() >= 100) {
+                    continue;
+                }
+
+                if (Math.hypot(
+                        ally.getX() - medic.getX(),
+                        ally.getY() - medic.getY()) <= 105) {
+                    count++;
+                }
+            }
+
+            if (count < 3) {
+                continue;
+            }
+
             int x = medic.getX() + medic.getSize() / 2;
             int y = medic.getY() + medic.getSize() / 2;
+
             int healed = new HealingCircleSpell(x, y).cast(humans);
+
             lastHealSpellTimes.put(medic, now);
-            spellVisuals.add(new SpellVisual(x, y, 105, new Color(20, 190, 65),
-                    "HEAL +25 (" + healed + ")", now + 1100));
-            battleEvents.setText("Battle Spells: Medic healed " + healed + " allies");
-            break; // One healing circle at a time.
+
+            spellVisuals.add(
+                new SpellVisual(
+                    x,
+                    y,
+                    105,
+                    new Color(20, 190, 65),
+                    "HEAL +25 (" + healed + ")",
+                    now + 1100
+                )
+            );
+
+            battleEvents.setText(
+                "Battle Spells: Medic healed "
+                    + healed + " allies"
+            );
+
+            break;
         }
     }
 
     // Bloaters automatically release a short-lived poison cloud near humans.
-    private void updatePoisonSpells(ArrayList<Human> humans, ArrayList<Zombie> zombies,
-            ArrayList<Human> convertedHumans, long now) {
-        lastPoisonSpellTimes.keySet().removeIf(bloater -> !bloater.isAlive());
+    private void updatePoisonSpells(
+            ArrayList<Human> humans,
+            ArrayList<Zombie> zombies,
+            ArrayList<Human> convertedHumans,
+            long now) {
+
+        lastPoisonSpellTimes.keySet().removeIf(
+            bloater -> !bloater.isAlive()
+        );
+
         // Remove expired clouds before deciding whether a new one can spawn.
-        activePoisons.removeIf(poison -> now >= poison.expiresAt);
-        boolean canSpawn = now - survivalStartTime >= INITIAL_SPELL_DELAY
+        activePoisons.removeIf(
+            poison -> now >= poison.expiresAt
+        );
+
+        boolean canSpawn =
+            now - survivalStartTime >= INITIAL_SPELL_DELAY
                 && activePoisons.size() < MAX_ACTIVE_POISONS;
-        if (canSpawn) for (Zombie zombie : zombies) {
-            if (!(zombie instanceof Bloater bloater) || !bloater.isAlive()) continue;
-            Long last = lastPoisonSpellTimes.get(bloater);
-            if (last != null && now - last < POISON_COOLDOWN) continue;
-            int x = bloater.getX() + bloater.getSize() / 2;
-            int y = bloater.getY() + bloater.getSize() / 2;
-            boolean humanNearby = false;
-            for (Human human : humans) {
-                if (human.isAlive() && !human.isSheltered()
-                        && Math.hypot(human.getX() - x, human.getY() - y) <= 115) {
-                    humanNearby = true;
-                    break;
+
+        if (canSpawn) {
+
+            for (Zombie zombie : zombies) {
+
+                if (!(zombie instanceof Bloater bloater)
+                        || !bloater.isAlive()) {
+                    continue;
                 }
+
+                Long last = lastPoisonSpellTimes.get(bloater);
+
+                if (last != null
+                        && now - last < POISON_COOLDOWN) {
+                    continue;
+                }
+
+                int x = bloater.getX()
+                    + bloater.getSize() / 2;
+
+                int y = bloater.getY()
+                    + bloater.getSize() / 2;
+
+                boolean humanNearby = false;
+
+                for (Human human : humans) {
+
+                    if (human.isAlive()
+                            && !human.isSheltered()
+                            && Math.hypot(
+                                human.getX() - x,
+                                human.getY() - y
+                            ) <= 115) {
+
+                        humanNearby = true;
+                        break;
+                    }
+                }
+
+                if (!humanNearby) {
+                    continue;
+                }
+
+                activePoisons.add(
+                    new ActivePoison(x, y, now)
+                );
+
+                lastPoisonSpellTimes.put(bloater, now);
+
+                battleEvents.setText(
+                    "Battle Spells: Bloater released poison cloud"
+                );
+
+                break;
             }
-            if (!humanNearby) continue;
-            activePoisons.add(new ActivePoison(x, y, now));
-            lastPoisonSpellTimes.put(bloater, now);
-            battleEvents.setText("Battle Spells: Bloater released poison cloud");
-            break; // Do not allow overlapping poison clouds.
         }
-        Iterator<ActivePoison> iterator = activePoisons.iterator();
+
+        Iterator<ActivePoison> iterator =
+            activePoisons.iterator();
+
         while (iterator.hasNext()) {
+
             ActivePoison poison = iterator.next();
+
             if (now >= poison.expiresAt) {
                 iterator.remove();
                 continue;
             }
+
             if (now >= poison.nextTick) {
-                for (Human victim : poison.spell.damage(humans)) {
-                    if (!convertedHumans.contains(victim)) convertedHumans.add(victim);
+
+                for (Human victim :
+                        poison.spell.damage(humans)) {
+
+                    if (!convertedHumans.contains(victim)) {
+                        convertedHumans.add(victim);
+                    }
                 }
+
                 poison.nextTick = now + 500;
             }
         }
     }
-
+    
     /**
      * Update the entire simulation.
      */
     private void updateSimulation() {
 
-        if (
-            getWidth() <= 0
-                || getHeight() <= 0
-        ) {
+        if (getWidth() <= 0 || getHeight() <= 0) {
             return;
         }
 
@@ -772,11 +977,10 @@ public class Main extends JPanel {
         // SPAWN TIMED WAVES
         updateTimedWaves();
 
-        // Spawn temporary emergency medicine at valid landing locations.
+        // Spawn temporary emergency medicine.
         updateTimedSupplyDrops();
 
         // MUTANT BOSS SPECIAL ABILITIES
-        // Ground Smash and Zombie Summoning
         world.updateBossAbilities();
 
         long now = world.getTime();
@@ -798,7 +1002,6 @@ public class Main extends JPanel {
                 humans
             );
 
-            // Medics without medicine can head towards a nearby supply crate.
             if (human instanceof Medic medic) {
                 medic.setEmergencySupplyDrops(activeDrops);
             }
@@ -813,12 +1016,9 @@ public class Main extends JPanel {
             // BUILDING INTERACTION
             for (Building building : buildings) {
 
-                if (
-                    building.contains(
+                if (building.contains(
                         human.getX(),
-                        human.getY()
-                    )
-                ) {
+                        human.getY())) {
 
                     building.interact(human);
                 }
@@ -835,20 +1035,15 @@ public class Main extends JPanel {
             zombie.setBuildings(buildings);
 
             // BLOATER EXPLOSION
-            if (
-                zombie instanceof Bloater bloater
-                    && bloater.shouldExplode(humans)
-            ) {
+            if (zombie instanceof Bloater bloater
+                    && bloater.shouldExplode(humans)) {
 
                 ArrayList<Human> explosionDeaths =
                     bloater.explode(humans);
 
                 for (Human human : explosionDeaths) {
 
-                    if (
-                        !convertedHumans.contains(human)
-                    ) {
-
+                    if (!convertedHumans.contains(human)) {
                         convertedHumans.add(human);
                     }
                 }
@@ -864,10 +1059,8 @@ public class Main extends JPanel {
                 safePoint
             );
 
-            if (
-                deadHuman != null
-                    && !convertedHumans.contains(deadHuman)
-            ) {
+            if (deadHuman != null
+                    && !convertedHumans.contains(deadHuman)) {
 
                 convertedHumans.add(deadHuman);
             }
@@ -875,7 +1068,13 @@ public class Main extends JPanel {
 
         // AUTOMATIC HEALING AND POISON CLOUDS
         updateHealingSpells(humans, now);
-        updatePoisonSpells(humans, zombies, convertedHumans, now);
+
+        updatePoisonSpells(
+            humans,
+            zombies,
+            convertedHumans,
+            now
+        );
 
         // CONVERT DEAD HUMANS TO ZOMBIES
         for (Human human : convertedHumans) {
@@ -893,7 +1092,9 @@ public class Main extends JPanel {
         checkAutomaticAirstrikes(humans, zombies, now);
         updatePendingAirstrikes(zombies, now);
 
-        spellVisuals.removeIf(visual -> now >= visual.expiresAt);
+        spellVisuals.removeIf(
+            visual -> now >= visual.expiresAt
+        );
 
         // REMOVE DEAD CHARACTERS
         world.update();
@@ -901,7 +1102,7 @@ public class Main extends JPanel {
         // REFRESH POPULATION INFORMATION
         refreshPopulationSummary();
 
-        // Refresh the tactical radar after each simulation update.
+        // Refresh tactical radar
         if (tacticalMiniMap != null) {
             tacticalMiniMap.refresh();
         }
@@ -926,28 +1127,20 @@ public class Main extends JPanel {
 
         timer.stop();
 
-        int choice =
-            JOptionPane.showConfirmDialog(
-                this,
-                "Simulation Complete: "
-                    + "No Humans Remaining.\n"
-                    + "Wave reached: "
-                    + waveNumber
-                    + "\nTime survived: "
-                    + getSurvivalTime()
-                    + "\nZombies eliminated: "
-                    + world.getTotalZombieEliminations()
-                    + "\n\n"
-                    + "Would you like to restart "
-                    + "the simulation?",
-                "Simulation Complete",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.INFORMATION_MESSAGE
-            );
+        int choice = JOptionPane.showConfirmDialog(
+            this,
+            "Simulation Complete: No Humans Remaining.\n"
+                + "Wave reached: " + waveNumber
+                + "\nTime survived: " + getSurvivalTime()
+                + "\nZombies eliminated: "
+                + world.getTotalZombieEliminations()
+                + "\n\nWould you like to restart the simulation?",
+            "Simulation Complete",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.INFORMATION_MESSAGE
+        );
 
-        if (
-            choice == JOptionPane.YES_OPTION
-        ) {
+        if (choice == JOptionPane.YES_OPTION) {
 
             java.awt.Window currentWindow =
                 SwingUtilities.getWindowAncestor(this);
@@ -957,7 +1150,6 @@ public class Main extends JPanel {
             }
 
             try {
-
                 createAndStartSimulation();
 
             } catch (RuntimeException exception) {
@@ -972,7 +1164,6 @@ public class Main extends JPanel {
             }
 
         } else {
-
             System.exit(0);
         }
     }
@@ -995,150 +1186,93 @@ public class Main extends JPanel {
      * Controls and legend below the game.
      */
     public JPanel getSimulationControls() {
+        Color background = new Color(10, 22, 36);
+        JPanel controls = new JPanel(new BorderLayout(0, 7));
+        controls.setBackground(background);
+        controls.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(2, 0, 0, 0, new Color(58, 92, 116)),
+            BorderFactory.createEmptyBorder(7, 14, 8, 14)
+        ));
 
-        JPanel controls =
-            new JPanel(new BorderLayout());
+        // Row 1: legend, centred.
+        JPanel legend = new JPanel(new FlowLayout(FlowLayout.CENTER, 13, 3));
+        legend.setBackground(background);
+        JLabel legendTitle = new JLabel("Legend:");
+        styleDarkLabel(legendTitle);
+        legend.add(legendTitle);
+        addLegendItem(legend, "C Civilian", new Color(0, 137, 123));
+        addLegendItem(legend, "S Soldier", new Color(0, 137, 123));
+        addLegendItem(legend, "M Medic", new Color(0, 137, 123));
+        addLegendItem(legend, "Z Standard zombie", new Color(211, 47, 47));
+        addLegendItem(legend, "R Runner", new Color(245, 124, 0));
+        addLegendItem(legend, "S Stalker", new Color(123, 31, 162));
+        addLegendItem(legend, "B Bloater", new Color(84, 110, 122));
+        addLegendItem(legend, "BR Brute", new Color(78, 52, 46));
+        addLegendItem(legend, "SP Spitter", new Color(104, 159, 56));
+        addLegendItem(legend, "BOSS Mutant boss", new Color(74, 20, 140));
+        addLegendItem(legend, "Shelter", new Color(0, 110, 0));
 
-        JPanel legend =
-            new JPanel(
-                new FlowLayout(
-                    FlowLayout.CENTER,
-                    10,
-                    3
-                )
-            );
+        // Rows 2 and 3: give population more space so the text is not cut off.
+        JPanel status = new JPanel(new GridBagLayout());
+        status.setBackground(background);
+        refreshPopulationSummary();
+        styleDarkLabel(populationSummary);
+        styleDarkLabel(zombieTypeSummary);
+        styleDarkLabel(battleEvents);
+        populationSummary.setHorizontalAlignment(SwingConstants.LEFT);
+        zombieTypeSummary.setHorizontalAlignment(SwingConstants.LEFT);
+        safeZoneThreat.setHorizontalAlignment(SwingConstants.RIGHT);
+        battleEvents.setHorizontalAlignment(SwingConstants.RIGHT);
+        battleEvents.setForeground(new Color(119, 236, 127));
 
-        legend.add(new JLabel("Legend:"));
+        GridBagConstraints cell = new GridBagConstraints();
+        cell.fill = GridBagConstraints.HORIZONTAL;
+        cell.insets = new Insets(4, 10, 4, 10);
+        cell.gridx = 0;
+        cell.gridy = 0;
+        cell.weightx = 0.72;
+        status.add(populationSummary, cell);
+        cell.gridx = 1;
+        cell.weightx = 0.28;
+        status.add(safeZoneThreat, cell);
+        cell.gridx = 0;
+        cell.gridy = 1;
+        cell.weightx = 0.72;
+        status.add(zombieTypeSummary, cell);
+        cell.gridx = 1;
+        cell.weightx = 0.28;
+        status.add(battleEvents, cell);
 
-        addLegendItem(
-            legend,
-            "C Civilian",
-            new Color(0, 137, 123)
-        );
-
-        addLegendItem(
-            legend,
-            "S Soldier",
-            new Color(0, 137, 123)
-        );
-
-        addLegendItem(
-            legend,
-            "M Medic",
-            new Color(0, 137, 123)
-        );
-
-        addLegendItem(
-            legend,
-            "Z Standard zombie",
-            new Color(211, 47, 47)
-        );
-
-        addLegendItem(
-            legend,
-            "R Runner",
-            new Color(245, 124, 0)
-        );
-
-        addLegendItem(
-            legend,
-            "S Stalker",
-            new Color(123, 31, 162)
-        );
-
-        addLegendItem(
-            legend,
-            "B Bloater",
-            new Color(84, 110, 122)
-        );
-
-        addLegendItem(
-            legend,
-            "BR Brute",
-            new Color(78, 52, 46)
-        );
-
-        addLegendItem(
-            legend,
-            "SP Spitter",
-            new Color(104, 159, 56)
-        );
-
-        addLegendItem(
-            legend,
-            "BOSS Mutant boss",
-            new Color(74, 20, 140)
-        );
-
-        addLegendItem(
-            legend,
-            "Safe Zone",
-            new Color(0, 110, 0)
-        );
-
-        JPanel buttons =
-            new JPanel(
-                new FlowLayout(
-                    FlowLayout.CENTER
-                )
-            );
-
+        // Row 4: speed, pause, and medic priority, centred.
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 4));
+        buttons.setBackground(background);
         buttons.add(fastForward);
+        styleDarkButton(pauseButton);
         buttons.add(pauseButton);
-
-        JComboBox<String> treatment =
-            new JComboBox<>(
-                new String[] {
-                    "Soldiers first",
-                    "Most injured first"
-                }
-            );
-
-        treatment.setToolTipText(
-            "Choose who medics help first; "
-                + "critical self-healing still takes priority."
-        );
-
-        treatment.addActionListener(event -> {
-
-            world.setTreatmentStrategy(
-                treatment.getSelectedIndex() == 0
-                    ? new itera.model.human.treatment.SoldiersFirstStrategy()
-                    : new itera.model.human.treatment.MostInjuredStrategy()
-            );
+        JLabel medicLabel = new JLabel("Medic priority:");
+        styleDarkLabel(medicLabel);
+        buttons.add(medicLabel);
+        JComboBox<String> treatment = new JComboBox<>(new String[] {
+            "Soldiers first", "Most injured first"
         });
-
-        buttons.add(
-            new JLabel("Medic priority:")
+        treatment.setBackground(new Color(36, 57, 77));
+        treatment.setForeground(Color.WHITE);
+        treatment.setToolTipText(
+            "Choose who medics help first; critical self-healing still takes priority."
         );
-
+        treatment.addActionListener(event -> world.setTreatmentStrategy(
+            treatment.getSelectedIndex() == 0
+                ? new itera.model.human.treatment.SoldiersFirstStrategy()
+                : new itera.model.human.treatment.MostInjuredStrategy()
+        ));
         buttons.add(treatment);
 
-        refreshPopulationSummary();
-
-        controls.add(
-            legend,
-            BorderLayout.NORTH
-        );
-
-        // Display population, Safe Zone threat, and zombie types.
-        JPanel liveStatus = new JPanel(new GridLayout(4, 1));
-
-        liveStatus.add(populationSummary);
-        liveStatus.add(safeZoneThreat);
-        liveStatus.add(zombieTypeSummary);
-        liveStatus.add(battleEvents);
-
-        controls.add(
-            liveStatus,
-            BorderLayout.CENTER
-        );
-
-        controls.add(
-            buttons,
-            BorderLayout.SOUTH
-        );
-
+        JPanel upper = new JPanel(new BorderLayout(0, 5));
+        upper.setBackground(background);
+        upper.add(legend, BorderLayout.NORTH);
+        upper.add(status, BorderLayout.CENTER);
+        controls.add(upper, BorderLayout.CENTER);
+        controls.add(buttons, BorderLayout.SOUTH);
         return controls;
     }
 
@@ -1149,13 +1283,23 @@ public class Main extends JPanel {
 
         JLabel item = new JLabel(text);
 
-        item.setForeground(color);
+        item.setForeground(
+            new Color(
+                Math.min(255, color.getRed() + 75),
+                Math.min(255, color.getGreen() + 75),
+                Math.min(255, color.getBlue() + 75)
+            )
+        );
 
         legend.add(item);
     }
 
-    /** Elapsed simulation time, including fast-forward but excluding pauses. */
+    /**
+     * Elapsed simulation time, including fast-forward
+     * but excluding pauses.
+     */
     private String getSurvivalTime() {
+
         long elapsedSeconds = Math.max(
             0L,
             (world.getTime() - survivalStartTime) / 1000
@@ -1164,29 +1308,43 @@ public class Main extends JPanel {
         long minutes = elapsedSeconds / 60;
         long seconds = elapsedSeconds % 60;
 
-        return String.format(Locale.ROOT, "%02d:%02d", minutes, seconds);
+        return String.format(
+            Locale.ROOT,
+            "%02d:%02d",
+            minutes,
+            seconds
+        );
     }
 
     /**
-     * Warns when the next wave is a boss wave and is at most
-     * five simulation seconds away.
+     * Warn before a boss wave.
      */
     private static boolean isBossWaveIncoming(
-            int currentWave, long secondsUntilNextWave) {
+            int currentWave,
+            long secondsUntilNextWave) {
+
         return currentWave >= 1
             && (currentWave + 1) % 5 == 0
             && secondsUntilNextWave > 0
             && secondsUntilNextWave <= 5;
     }
 
-    /** HUD wave text, for example "Wave: 3 (Stalker wave)". */
-    private static String waveLabel(int waveNumber, ZombieType featured) {
+    /**
+     * HUD wave label.
+     */
+    private static String waveLabel(
+            int waveNumber,
+            ZombieType featured) {
+
         return featured == null
             ? "Wave: " + waveNumber
-            : "Wave: " + waveNumber + " (" + featured.getLabel() + " wave)";
+            : "Wave: " + waveNumber
+                + " (" + featured.getLabel() + " wave)";
     }
 
-    /** Time remaining until the next wave. */
+    /**
+     * Time remaining until next wave.
+     */
     private long getNextWaveSeconds() {
 
         if (lastWaveTime == 0) {
@@ -1196,15 +1354,201 @@ public class Main extends JPanel {
         long elapsed =
             world.getTime() - lastWaveTime;
 
-        long remaining =
-            Math.max(
-                0,
-                WAVE_INTERVAL - elapsed
-            );
+        long remaining = Math.max(
+            0,
+            WAVE_INTERVAL - elapsed
+        );
 
         return (remaining + 999) / 1000;
     }
 
+    // Simple horror terrain, visual only.
+    private void drawBattlefieldTerrain(Graphics g) {
+
+        Graphics2D g2 = (Graphics2D) g.create();
+
+        g2.setRenderingHint(
+            RenderingHints.KEY_ANTIALIASING,
+            RenderingHints.VALUE_ANTIALIAS_ON
+        );
+
+        g2.setColor(new Color(58, 65, 48));
+
+        g2.fillRect(
+            0,
+            0,
+            WORLD_WIDTH,
+            WORLD_HEIGHT
+        );
+
+        Random terrainRandom = new Random(2026);
+
+        for (int i = 0; i < 58; i++) {
+
+            int x = 25
+                + terrainRandom.nextInt(WORLD_WIDTH - 50);
+
+            int y = 55
+                + terrainRandom.nextInt(WORLD_HEIGHT - 85);
+
+            if ((x < 205 || x > WORLD_WIDTH - 205)
+                    && (y < 205 || y > 530)) {
+                continue;
+            }
+
+            if (i % 3 == 0) {
+
+                // Blood pool
+                g2.setColor(
+                    new Color(86, 10, 14, 145)
+                );
+
+                g2.fillOval(x - 17, y - 9, 34, 18);
+                g2.fillOval(x - 7, y - 14, 15, 27);
+
+                for (int j = 0; j < 5; j++) {
+
+                    int dx =
+                        terrainRandom.nextInt(57) - 28;
+
+                    int dy =
+                        terrainRandom.nextInt(43) - 21;
+
+                    g2.fillOval(
+                        x + dx,
+                        y + dy,
+                        3 + terrainRandom.nextInt(5),
+                        3
+                    );
+                }
+
+            } else if (i % 3 == 1) {
+
+                // Cracked ground
+                g2.setColor(
+                    new Color(20, 23, 19, 105)
+                );
+
+                g2.drawLine(x - 12, y - 7, x, y);
+                g2.drawLine(x, y, x + 13, y - 5);
+                g2.drawLine(x, y, x + 6, y + 13);
+                g2.drawLine(x - 4, y - 2, x - 1, y - 11);
+
+            } else {
+
+                // Dirt patch
+                g2.setColor(
+                    new Color(92, 78, 57, 60)
+                );
+
+                g2.fillOval(
+                    x - 15,
+                    y - 8,
+                    30,
+                    16
+                );
+            }
+        }
+
+        g2.dispose();
+    }
+
+    // Dark scrollbar styling
+    private static void styleDarkScrollBar(
+            JScrollBar bar) {
+
+        bar.setBackground(new Color(12, 22, 32));
+        bar.setForeground(new Color(75, 94, 108));
+        bar.setUnitIncrement(20);
+
+        bar.setUI(
+            new javax.swing.plaf.basic.BasicScrollBarUI() {
+
+                @Override
+                protected void configureScrollBarColors() {
+
+                    trackColor = new Color(12, 22, 32);
+                    thumbColor = new Color(69, 89, 104);
+
+                    thumbDarkShadowColor =
+                        new Color(42, 59, 72);
+
+                    thumbHighlightColor =
+                        new Color(100, 125, 140);
+                }
+
+                @Override
+                protected JButton createDecreaseButton(
+                        int orientation) {
+
+                    return darkScrollButton();
+                }
+
+                @Override
+                protected JButton createIncreaseButton(
+                        int orientation) {
+
+                    return darkScrollButton();
+                }
+
+                private JButton darkScrollButton() {
+
+                    JButton button = new JButton();
+
+                    button.setPreferredSize(
+                        new Dimension(12, 12)
+                    );
+
+                    button.setBackground(
+                        new Color(22, 37, 49)
+                    );
+
+                    button.setBorder(
+                        BorderFactory.createLineBorder(
+                            new Color(45, 64, 76)
+                        )
+                    );
+
+                    return button;
+                }
+            }
+        );
+    }
+
+    private static void styleDarkLabel(JLabel label) {
+
+        label.setForeground(
+            new Color(222, 235, 244)
+        );
+
+        label.setFont(
+            new Font("SansSerif", Font.BOLD, 12)
+        );
+    }
+
+    private static void styleDarkButton(
+            AbstractButton button) {
+
+        button.setBackground(
+            new Color(36, 57, 77)
+        );
+
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setOpaque(true);
+
+        button.setBorder(
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(
+                    new Color(68, 100, 125)
+                ),
+                BorderFactory.createEmptyBorder(
+                    6, 12, 6, 12
+                )
+            )
+        );
+    }
+    
     /**
      * Draw the entire simulation.
      */
@@ -1213,17 +1557,21 @@ public class Main extends JPanel {
 
         super.paintComponent(g);
 
-        // BACKGROUND
-        g.setColor(
-            new Color(220, 220, 220)
-        );
+        // Illustrated terrain replaces the plain grey background.
+        drawBattlefieldTerrain(g);
 
-        g.fillRect(
-            0,
-            0,
-            getWidth(),
-            getHeight()
-        );
+        // Subtle shadows under existing buildings, no changes to hitboxes.
+        Graphics2D shadowGraphics = (Graphics2D) g.create();
+        shadowGraphics.setColor(new Color(12, 24, 20, 90));
+        shadowGraphics.fillRoundRect(6, 6, BUILDING_SIZE, BUILDING_SIZE, 12, 12);
+        shadowGraphics.fillRoundRect(WORLD_WIDTH - BUILDING_SIZE + 6, 6,
+            BUILDING_SIZE - 6, BUILDING_SIZE, 12, 12);
+        shadowGraphics.fillRoundRect(6, WORLD_HEIGHT - BUILDING_SIZE - BOTTOM_BUILDING_OFFSET + 6,
+            BUILDING_SIZE, BUILDING_SIZE, 12, 12);
+        shadowGraphics.fillRoundRect(WORLD_WIDTH - BUILDING_SIZE + 6,
+            WORLD_HEIGHT - BUILDING_SIZE - BOTTOM_BUILDING_OFFSET + 6,
+            BUILDING_SIZE - 6, BUILDING_SIZE, 12, 12);
+        shadowGraphics.dispose();
 
         // BUILDINGS
         for (Building building : buildings) {
@@ -1292,106 +1640,28 @@ public class Main extends JPanel {
         long nextWaveSeconds =
             getNextWaveSeconds();
 
-        g.setColor(Color.BLACK);
-
-        g.setFont(
-            new Font(
-                "Arial",
-                Font.BOLD,
-                14
-            )
-        );
-
-        String humanText =
-            "Humans: " + humanCount;
-
-        String zombieText =
-            "Zombies: " + zombieCount;
-
-        String killsText =
-            "Eliminated: "
-                + world.getTotalZombieEliminations();
-
-        String survivalText =
-            "Survived: " + getSurvivalTime();
-
-        String waveText =
-            waveLabel(waveNumber, featuredType);
-
-        String nextWaveText =
-            "Next wave: "
-                + nextWaveSeconds
-                + "s";
-
-        FontMetrics fm =
-            g.getFontMetrics();
-
-        int gap = 22;
-
-        int totalWidth =
-            fm.stringWidth(humanText)
-                + fm.stringWidth(zombieText)
-                + fm.stringWidth(killsText)
-                + fm.stringWidth(survivalText)
-                + fm.stringWidth(waveText)
-                + fm.stringWidth(nextWaveText)
-                + gap * 5;
-
-        int currentX =
-            (getWidth() - totalWidth) / 2;
-
-        int textY = 28;
-
-        g.drawString(
-            humanText,
-            currentX,
-            textY
-        );
-
-        currentX +=
-            fm.stringWidth(humanText) + gap;
-
-        g.drawString(
-            zombieText,
-            currentX,
-            textY
-        );
-
-        currentX +=
-            fm.stringWidth(zombieText) + gap;
-
-        g.drawString(
-            killsText,
-            currentX,
-            textY
-        );
-
-        currentX +=
-            fm.stringWidth(killsText) + gap;
-
-        g.drawString(
-            survivalText,
-            currentX,
-            textY
-        );
-
-        currentX +=
-            fm.stringWidth(survivalText) + gap;
-
-        g.drawString(
-            waveText,
-            currentX,
-            textY
-        );
-
-        currentX +=
-            fm.stringWidth(waveText) + gap;
-
-        g.drawString(
-            nextWaveText,
-            currentX,
-            textY
-        );
+        // Dark HUD with text that fits the 1200px battlefield.
+        Graphics2D hud = (Graphics2D) g.create();
+        hud.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+            RenderingHints.VALUE_ANTIALIAS_ON);
+        hud.setColor(new Color(10, 23, 37, 235));
+        hud.fillRoundRect(205, 5, WORLD_WIDTH - 410, 45, 12, 12);
+        hud.setFont(new Font("SansSerif", Font.BOLD, 13));
+        hud.setColor(new Color(240, 247, 252));
+        String[] hudParts = {
+            "Humans: " + humanCount,
+            "Zombies: " + zombieCount,
+            "Eliminated: " + world.getTotalZombieEliminations(),
+            "Survived: " + getSurvivalTime(),
+            "Wave: " + waveNumber,
+            "Next: " + nextWaveSeconds + "s"
+        };
+        int hudX = 220;
+        for (String part : hudParts) {
+            hud.drawString(part, hudX, 33);
+            hudX += hud.getFontMetrics().stringWidth(part) + 22;
+        }
+        hud.dispose();
 
         // Brief notification when a new emergency crate arrives.
         if (world.getTime() < supplyDropAlertUntil) {
@@ -1521,7 +1791,6 @@ public class Main extends JPanel {
         JScrollPane scrollPane =
             new JScrollPane(simulation);
 
-        // Leave room on the right for the tactical mini-map.
         scrollPane.setPreferredSize(
             new Dimension(900, 600)
         );
@@ -1534,13 +1803,22 @@ public class Main extends JPanel {
             JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
         );
 
-        frame.add(
-            scrollPane,
-            BorderLayout.CENTER
+        // Dark scrollbars and background
+        styleDarkScrollBar(scrollPane.getHorizontalScrollBar());
+        styleDarkScrollBar(scrollPane.getVerticalScrollBar());
+
+        scrollPane.setBackground(new Color(12, 22, 32));
+        scrollPane.getViewport().setBackground(new Color(12, 22, 32));
+
+        JPanel scrollCorner = new JPanel();
+        scrollCorner.setBackground(new Color(12, 22, 32));
+
+        scrollPane.setCorner(
+            JScrollPane.LOWER_RIGHT_CORNER,
+            scrollCorner
         );
 
-        // Interactive tactical radar:
-        // stays visible while scrolling the battlefield.
+        // INTERACTIVE TACTICAL RADAR
         simulation.tacticalMiniMap = new TacticalMiniMap(
             simulation.world,
             scrollPane,
@@ -1578,16 +1856,10 @@ public class Main extends JPanel {
             )
         );
 
-        frame.add(
-            simulation.tacticalMiniMap,
-            BorderLayout.EAST
-        );
-
-        // CONTROLS BELOW GAME
-        frame.add(
-            simulation.getSimulationControls(),
-            BorderLayout.SOUTH
-        );
+        // Fixed layout: battlefield centre, radar right, controls bottom.
+        frame.add(scrollPane, BorderLayout.CENTER);
+        frame.add(simulation.tacticalMiniMap, BorderLayout.EAST);
+        frame.add(simulation.getSimulationControls(), BorderLayout.SOUTH);
 
         frame.setDefaultCloseOperation(
             JFrame.EXIT_ON_CLOSE
@@ -1596,7 +1868,6 @@ public class Main extends JPanel {
         frame.pack();
 
         frame.setLocationRelativeTo(null);
-
         frame.setVisible(true);
 
         simulation.startSimulation();
@@ -1630,3 +1901,6 @@ public class Main extends JPanel {
         );
     }
 }
+
+
+

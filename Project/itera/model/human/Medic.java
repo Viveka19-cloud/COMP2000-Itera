@@ -141,20 +141,26 @@ public class Medic extends Human {
         return true;
     }
 
-    @Override
-    public void draw(Graphics g) {
-        super.draw(g);
-        drawTypeLabel(g, "M");
-        if (getMedKits() > 0) {
-            g.setColor(Color.WHITE);
-            g.fillRect(getX() + 12, getY() + 5, 9, 9);
-            g.setColor(Color.RED);
-            g.drawLine(getX() + 16, getY() + 6, getX() + 16, getY() + 12);
-            g.drawLine(getX() + 13, getY() + 9, getX() + 19, getY() + 9);
-        }
-        if (now() < healingUntil) {
-            g.setColor(Color.GREEN.darker());
-            g.drawString("+20", getX(), getY() - 12);
-        }
+ 
+ @Override
+public void draw(Graphics g) {
+    super.draw(g);
+    drawTypeLabel(g, "M");
+
+    if (getMedKits() > 0) {
+        // White background for the medical symbol
+        g.setColor(Color.WHITE);
+        g.fillRect(getX() + 12, getY() + 5, 9, 9);
+
+        // Red medical cross
+        g.setColor(Color.RED);
+        g.fillRect(getX() + 15, getY() + 6, 3, 7);
+        g.fillRect(getX() + 13, getY() + 8, 7, 3);
     }
+
+    if (now() < healingUntil) {
+        g.setColor(Color.GREEN.darker());
+        g.drawString("+20", getX(), getY() - 12);
+    }
+}
 }
