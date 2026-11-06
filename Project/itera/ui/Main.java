@@ -9,6 +9,9 @@ import java.awt.*;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.Timer;
+import itera.model.spells.AirstrikeSpell;
+import itera.model.spells.HealingCircleSpell;
+import itera.model.spells.PoisonCloudSpell;
 
 @SuppressWarnings({"serial", "this-escape"})
 public class Main extends JPanel {
@@ -61,6 +64,81 @@ public class Main extends JPanel {
 
     // Zombie type leading the current wave, or null for the first and boss waves.
     private ZombieType featuredType;
+    
+    // AUTOMATIC BATTLE SPELLS
+    private static final long AIRSTRIKE_COOLDOWN = 20000;
+    private static final long AIRSTRIKE_WARNING = 1000;
+    private static final int AIRSTRIKE_TRIGGER_COUNT = 5;
+    private static final double AIRSTRIKE_DETECTION_RADIUS = 150;
+
+    // Track each soldier's airstrike cooldown
+    private final Map<Soldier, Long> lastAirstrikeTimes =
+        new HashMap<>();
+
+    // Airstrikes waiting to explode
+    private final ArrayList<PendingAirstrike> pendingAirstrikes =
+        new ArrayList<>();
+
+    private static class PendingAirstrike {
+        final AirstrikeSpell spell;
+        final int x;
+        final int y;
+        final long explosionTime;
+
+        PendingAirstrike(
+                AirstrikeSpell spell,
+                int x,
+                int y,
+                long explosionTime) {
+            this.spell = spell;
+            this.x = x;
+            this.y = y;
+            this.explosionTime = explosionTime;
+        }
+    }
+
+
+    // Independent cooldowns for medics and poison-casting bloaters.
+    private static final long HEAL_COOLDOWN = 15000;
+    private static final long POISON_COOLDOWN = 18000;
+    private static final long POISON_DURATION = 3500;
+    // Prevent all special effects from firing at the start.
+    private static final long INITIAL_SPELL_DELAY = 8000;
+    private static final int MAX_ACTIVE_POISONS = 1;
+    private final Map<Medic, Long> lastHealSpellTimes = new HashMap<>();
+    private final Map<Bloater, Long> lastPoisonSpellTimes = new HashMap<>();
+    private final ArrayList<ActivePoison> activePoisons = new ArrayList<>();
+    private final ArrayList<SpellVisual> spellVisuals = new ArrayList<>();
+    private final JLabel battleEvents = new JLabel("Battle Spells: Ready", SwingConstants.CENTER);
+
+    private static class ActivePoison {
+        final PoisonCloudSpell spell;
+        final int x, y;
+        final long expiresAt;
+        long nextTick;
+        ActivePoison(int x, int y, long now) {
+            this.spell = new PoisonCloudSpell(x, y);
+            this.x = x;
+            this.y = y;
+            this.expiresAt = now + POISON_DURATION;
+            this.nextTick = now;
+        }
+    }
+
+    private static class SpellVisual {
+        final int x, y, radius;
+        final Color color;
+        final String label;
+        final long expiresAt;
+        SpellVisual(int x, int y, int radius, Color color, String label, long expiresAt) {
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+            this.color = color;
+            this.label = label;
+            this.expiresAt = expiresAt;
+        }
+    }
 
     private final JLabel populationSummary =
         new JLabel(" ", SwingConstants.CENTER);
@@ -538,6 +616,144 @@ public class Main extends JPanel {
         supplyDropAlertUntil = now + DROP_ALERT_DURATION;
     }
 
+    // Detect groups of zombies and schedule automatic airstrikes.
+    private void checkAutomaticAirstrikes(
+            ArrayList<Human> humans, ArrayList<Zombie> zombies, long now) {
+        // Clear cooldown records for soldiers who are no longer alive.
+        lastAirstrikeTimes.keySet().removeIf(soldier -> !soldier.isAlive());
+
+        for (Human human : humans) {
+            if (!(human instanceof Soldier soldier)
+                    || !soldier.isAlive() || soldier.isSheltered()
+                    || !soldier.isArmed()) {
+                continue;
+            }
+            Long lastUsed = lastAirstrikeTimes.get(soldier);
+            if (lastUsed != null && now - lastUsed < AIRSTRIKE_COOLDOWN) {
+                continue;
+            }
+
+            int count = 0;
+            double totalX = 0;
+            double totalY = 0;
+            for (Zombie zombie : zombies) {
+                if (!zombie.isAlive()) continue;
+                if (soldier.getPosition().distanceTo(zombie.getPosition())
+                        <= AIRSTRIKE_DETECTION_RADIUS) {
+                    count++;
+                    totalX += zombie.getX() + zombie.getSize() / 2.0;
+                    totalY += zombie.getY() + zombie.getSize() / 2.0;
+                }
+            }
+            if (count < AIRSTRIKE_TRIGGER_COUNT) continue;
+
+            int targetX = (int) (totalX / count);
+            int targetY = (int) (totalY / count);
+            // Avoid scheduling several airstrikes at essentially the same spot.
+            boolean alreadyTargeted = false;
+            for (PendingAirstrike pending : pendingAirstrikes) {
+                if (Math.hypot(pending.x - targetX, pending.y - targetY) < 100) {
+                    alreadyTargeted = true;
+                    break;
+                }
+            }
+            if (alreadyTargeted) continue;
+
+            pendingAirstrikes.add(new PendingAirstrike(
+                    new AirstrikeSpell(targetX, targetY),
+                    targetX, targetY, now + AIRSTRIKE_WARNING));
+            lastAirstrikeTimes.put(soldier, now);
+        }
+    }
+
+    // Detonate airstrikes after the one-second warning.
+    private void updatePendingAirstrikes(ArrayList<Zombie> zombies, long now) {
+        Iterator<PendingAirstrike> iterator = pendingAirstrikes.iterator();
+        while (iterator.hasNext()) {
+            PendingAirstrike pending = iterator.next();
+            if (now >= pending.explosionTime) {
+                int hit = pending.spell.explode(zombies);
+                spellVisuals.add(new SpellVisual(pending.x, pending.y, 100,
+                        new Color(235, 80, 15), "BOOM! (" + hit + ")", now + 650));
+                battleEvents.setText("Battle Spells: Airstrike hit " + hit + " zombies");
+                iterator.remove();
+            }
+        }
+    }
+
+    // Medics cast a healing circle when three or more allies are wounded nearby.
+    private void updateHealingSpells(ArrayList<Human> humans, long now) {
+        if (now - survivalStartTime < INITIAL_SPELL_DELAY) return;
+        // A healing circle is already on screen; wait for it to fade.
+        for (SpellVisual visual : spellVisuals) {
+            if (visual.label.startsWith("HEAL") && now < visual.expiresAt) return;
+        }
+        lastHealSpellTimes.keySet().removeIf(medic -> !medic.isAlive());
+        for (Human human : humans) {
+            if (!(human instanceof Medic medic) || !medic.isAlive() || medic.isSheltered()) continue;
+            Long last = lastHealSpellTimes.get(medic);
+            if (last != null && now - last < HEAL_COOLDOWN) continue;
+            int count = 0;
+            for (Human ally : humans) {
+                if (!ally.isAlive() || ally.isSheltered() || ally.getHealth() >= 100) continue;
+                if (Math.hypot(ally.getX() - medic.getX(), ally.getY() - medic.getY()) <= 105) count++;
+            }
+            if (count < 3) continue;
+            int x = medic.getX() + medic.getSize() / 2;
+            int y = medic.getY() + medic.getSize() / 2;
+            int healed = new HealingCircleSpell(x, y).cast(humans);
+            lastHealSpellTimes.put(medic, now);
+            spellVisuals.add(new SpellVisual(x, y, 105, new Color(20, 190, 65),
+                    "HEAL +25 (" + healed + ")", now + 1100));
+            battleEvents.setText("Battle Spells: Medic healed " + healed + " allies");
+            break; // One healing circle at a time.
+        }
+    }
+
+    // Bloaters automatically release a short-lived poison cloud near humans.
+    private void updatePoisonSpells(ArrayList<Human> humans, ArrayList<Zombie> zombies,
+            ArrayList<Human> convertedHumans, long now) {
+        lastPoisonSpellTimes.keySet().removeIf(bloater -> !bloater.isAlive());
+        // Remove expired clouds before deciding whether a new one can spawn.
+        activePoisons.removeIf(poison -> now >= poison.expiresAt);
+        boolean canSpawn = now - survivalStartTime >= INITIAL_SPELL_DELAY
+                && activePoisons.size() < MAX_ACTIVE_POISONS;
+        if (canSpawn) for (Zombie zombie : zombies) {
+            if (!(zombie instanceof Bloater bloater) || !bloater.isAlive()) continue;
+            Long last = lastPoisonSpellTimes.get(bloater);
+            if (last != null && now - last < POISON_COOLDOWN) continue;
+            int x = bloater.getX() + bloater.getSize() / 2;
+            int y = bloater.getY() + bloater.getSize() / 2;
+            boolean humanNearby = false;
+            for (Human human : humans) {
+                if (human.isAlive() && !human.isSheltered()
+                        && Math.hypot(human.getX() - x, human.getY() - y) <= 115) {
+                    humanNearby = true;
+                    break;
+                }
+            }
+            if (!humanNearby) continue;
+            activePoisons.add(new ActivePoison(x, y, now));
+            lastPoisonSpellTimes.put(bloater, now);
+            battleEvents.setText("Battle Spells: Bloater released poison cloud");
+            break; // Do not allow overlapping poison clouds.
+        }
+        Iterator<ActivePoison> iterator = activePoisons.iterator();
+        while (iterator.hasNext()) {
+            ActivePoison poison = iterator.next();
+            if (now >= poison.expiresAt) {
+                iterator.remove();
+                continue;
+            }
+            if (now >= poison.nextTick) {
+                for (Human victim : poison.spell.damage(humans)) {
+                    if (!convertedHumans.contains(victim)) convertedHumans.add(victim);
+                }
+                poison.nextTick = now + 500;
+            }
+        }
+    }
+
     /**
      * Update the entire simulation.
      */
@@ -657,6 +873,10 @@ public class Main extends JPanel {
             }
         }
 
+        // AUTOMATIC HEALING AND POISON CLOUDS
+        updateHealingSpells(humans, now);
+        updatePoisonSpells(humans, zombies, convertedHumans, now);
+
         // CONVERT DEAD HUMANS TO ZOMBIES
         for (Human human : convertedHumans) {
 
@@ -668,6 +888,12 @@ public class Main extends JPanel {
 
             world.addCharacter(newZombie);
         }
+
+        // AUTOMATIC AIRSTRIKES
+        checkAutomaticAirstrikes(humans, zombies, now);
+        updatePendingAirstrikes(zombies, now);
+
+        spellVisuals.removeIf(visual -> now >= visual.expiresAt);
 
         // REMOVE DEAD CHARACTERS
         world.update();
@@ -896,11 +1122,12 @@ public class Main extends JPanel {
         );
 
         // Display population, Safe Zone threat, and zombie types.
-        JPanel liveStatus = new JPanel(new GridLayout(3, 1));
+        JPanel liveStatus = new JPanel(new GridLayout(4, 1));
 
         liveStatus.add(populationSummary);
         liveStatus.add(safeZoneThreat);
         liveStatus.add(zombieTypeSummary);
+        liveStatus.add(battleEvents);
 
         controls.add(
             liveStatus,
@@ -1019,6 +1246,40 @@ public class Main extends JPanel {
         // CHARACTERS
         for (Character character : world.getCharacters()) {
             character.draw(g);
+        }
+
+        // Draw red warning zones for airstrikes awaiting detonation.
+        for (PendingAirstrike pending : pendingAirstrikes) {
+            int radius = 100;
+            g.setColor(new Color(220, 30, 30, 65));
+            g.fillOval(pending.x - radius, pending.y - radius,
+                    radius * 2, radius * 2);
+            g.setColor(new Color(180, 0, 0));
+            g.drawOval(pending.x - radius, pending.y - radius,
+                    radius * 2, radius * 2);
+            g.drawLine(pending.x - 12, pending.y,
+                    pending.x + 12, pending.y);
+            g.drawLine(pending.x, pending.y - 12,
+                    pending.x, pending.y + 12);
+        }
+
+        // SPELL VISUALS
+        for (ActivePoison poison : activePoisons) {
+            g.setColor(new Color(112, 35, 170, 85));
+            g.fillOval(poison.x - 95, poison.y - 95, 190, 190);
+            g.setColor(new Color(105, 25, 155));
+            g.drawOval(poison.x - 95, poison.y - 95, 190, 190);
+            g.drawString("POISON", poison.x - 24, poison.y);
+        }
+        for (SpellVisual visual : spellVisuals) {
+            g.setColor(new Color(visual.color.getRed(), visual.color.getGreen(),
+                    visual.color.getBlue(), 65));
+            g.fillOval(visual.x - visual.radius, visual.y - visual.radius,
+                    visual.radius * 2, visual.radius * 2);
+            g.setColor(visual.color);
+            g.drawOval(visual.x - visual.radius, visual.y - visual.radius,
+                    visual.radius * 2, visual.radius * 2);
+            g.drawString(visual.label, visual.x - 35, visual.y - 12);
         }
 
         // STATUS INFORMATION
