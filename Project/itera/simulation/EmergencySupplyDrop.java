@@ -55,6 +55,22 @@ public final class EmergencySupplyDrop {
         return medicine;
     }
 
+    /**
+     * Return the number of seconds before this supply drop expires.
+     * Expired or collected drops return zero.
+     */
+    public long getRemainingSeconds(long currentTime) {
+
+        if (!isActive(currentTime)) {
+            return 0;
+        }
+
+        long remaining = duration - (currentTime - spawnedAt);
+
+        // Round up to show whole seconds remaining.
+        return (remaining + 999) / 1000;
+    }
+
     public boolean isActive(long currentTime) {
         return currentTime >= spawnedAt
             && currentTime - spawnedAt < duration
@@ -88,6 +104,7 @@ public final class EmergencySupplyDrop {
 
     /**
      * Draw a highlighted emergency supply crate.
+     * Display how many seconds remain before it expires.
      */
     public void draw(Graphics graphics, long currentTime) {
 
@@ -121,10 +138,24 @@ public final class EmergencySupplyDrop {
             g.fillRect(x + 6, y + 1, 6, 15);
             g.fillRect(x + 2, y + 5, 14, 6);
 
-            // Label above the drop.
+            // Supply drop label.
             g.setColor(new Color(150, 90, 0));
             g.setFont(new Font("Arial", Font.BOLD, 11));
-            g.drawString("SUPPLY DROP", x - 28, y - 20);
+
+            g.drawString(
+                "SUPPLY DROP",
+                x - 28,
+                y - 36
+            );
+
+            // Countdown until the supply drop expires.
+            long secondsLeft = getRemainingSeconds(currentTime);
+
+            g.drawString(
+                "EXPIRES IN: " + secondsLeft + "s",
+                x - 42,
+                y - 21
+            );
 
         } finally {
             g.dispose();
