@@ -348,6 +348,19 @@ public class Main extends JPanel {
             repaint();
         });
 
+        // Spacebar pauses or resumes using the existing Pause button.
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
+            KeyStroke.getKeyStroke("released SPACE"),
+            "togglePause"
+        );
+
+        getActionMap().put("togglePause", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                pauseButton.doClick(0);
+            }
+        });
+
         // SIMULATION TIMER
         timer = new Timer(
             30,
