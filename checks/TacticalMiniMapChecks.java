@@ -18,7 +18,8 @@ public final class TacticalMiniMapChecks {
 
     private static int checks;
 
-    private static final int EXPANDED_WIDTH = 190;
+    // Updated to match the latest expanded tactical radar width.
+    private static final int EXPANDED_WIDTH = 270;
     private static final int COLLAPSED_WIDTH = 48;
 
     private static void check(boolean result, String message) {
