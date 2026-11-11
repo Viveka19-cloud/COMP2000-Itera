@@ -3,6 +3,8 @@ package itera.model.zombie;
 
 import itera.model.*;
 import itera.model.human.*;
+import itera.model.zombie.boss.*;
+
 import java.awt.*;
 import java.util.ArrayList;
 
@@ -20,13 +22,14 @@ public class MutantBoss extends Zombie {
     private static final long SMASH_COOLDOWN = 8000;
     private static final long SMASH_WARNING = 2000;
 
-    private long lastSmashTime;
-    private long warningStartTime;
-    private boolean smashWarningActive = false;
-    private boolean smashClockStarted = false;
+    // State Design Pattern
+    private BossState currentState = new ChaseState();
 
-    // Zombie Summoning
-    private boolean hasSummoned = false;
+    // Summoning runs independently of Ground Smash.
+    private final BossState summonState = new SummonState();
+
+    private long lastSmashTime;
+    private boolean smashClockStarted = false;
     private boolean summonRequested = false;
 
     public MutantBoss(int x, int y) {
@@ -45,7 +48,7 @@ public class MutantBoss extends Zombie {
 
     /**
      * Called once per simulation tick.
-     * Controls Ground Smash and Zombie Summoning.
+     * Delegates special abilities to state objects.
      */
     public void updateSpecialAbilities(
             ArrayList<Human> humans,
@@ -55,41 +58,90 @@ public class MutantBoss extends Zombie {
             return;
         }
 
-        // Summon zombies once at 50% health.
-        if (!hasSummoned && health <= BOSS_HEALTH / 2) {
-            hasSummoned = true;
-            summonRequested = true;
-        }
+        // Check summoning independently.
+        summonState.update(this, humans, currentTime);
 
-        // Start the cooldown when the boss first appears.
+        // Begin cooldown when boss first appears.
         if (!smashClockStarted) {
             lastSmashTime = currentTime;
             smashClockStarted = true;
         }
 
-        // Start warning after 8 seconds.
-        if (!smashWarningActive
-                && currentTime - lastSmashTime >= SMASH_COOLDOWN) {
+        // Delegate behaviour to the active state.
+        currentState.update(this, humans, currentTime);
+        System.out.println(
+    "BOSS DEBUG | time=" + currentTime
+    + " | state=" + getBossStateName()
+    + " | elapsed=" + (currentTime - lastSmashTime)
+);
+    }
 
-            smashWarningActive = true;
-            warningStartTime = currentTime;
+    /**
+     * Transition to another boss state.
+     */
+    public void changeState(BossState nextState) {
+
+        if (nextState == null) {
+            throw new IllegalArgumentException(
+                "Boss state required"
+            );
         }
 
-        // Execute Ground Smash after the warning.
-        if (smashWarningActive
-                && currentTime - warningStartTime >= SMASH_WARNING) {
+        currentState = nextState;
+    }
 
-            performGroundSmash(humans);
+    /**
+     * Update the active state after a transition.
+     */
+    public void updateCurrentState(
+            ArrayList<Human> humans,
+            long currentTime) {
 
-            smashWarningActive = false;
-            lastSmashTime = currentTime;
-        }
+        currentState.update(this, humans, currentTime);
+        System.out.println("Boss State: " + getBossStateName());
+    }
+
+    public long getLastSmashTime() {
+        return lastSmashTime;
+    }
+
+    public void setLastSmashTime(long time) {
+        lastSmashTime = time;
+    }
+
+    public long getSmashCooldown() {
+        return SMASH_COOLDOWN;
+    }
+
+    public long getSmashWarningDuration() {
+        return SMASH_WARNING;
+    }
+
+    /**
+     * Used by SummonState to request reinforcements.
+     */
+    public void requestSummon() {
+        summonRequested = true;
+    }
+
+    /**
+     * Whether the boss is currently warning players.
+     */
+    public boolean isSmashWarningActive() {
+        return currentState instanceof SmashWarningState;
+    }
+
+    /**
+     * Useful for debugging and testing transitions.
+     */
+    public String getBossStateName() {
+        return currentState.getClass().getSimpleName();
     }
 
     /**
      * Damage every nearby living human.
      */
-    private void performGroundSmash(ArrayList<Human> humans) {
+    public void performGroundSmash(ArrayList<Human> humans) {
 
         double bossCenterX = getX() + size / 2.0;
         double bossCenterY = getY() + size / 2.0;
@@ -118,8 +170,8 @@ public class MutantBoss extends Zombie {
     }
 
     /**
-     * World checks this to spawn reinforcements.
-     * Returns true only once.
+     * World consumes the summoning request.
+     * Returns true once per request.
      */
     public boolean consumeSummonRequest() {
 
@@ -139,8 +191,8 @@ public class MutantBoss extends Zombie {
         int centerX = getX() + size / 2;
         int centerY = getY() + size / 2;
 
-        // Show the Ground Smash warning circle.
-        if (smashWarningActive) {
+        // Draw warning circle during SmashWarningState.
+        if (isSmashWarningActive()) {
 
             g2.setColor(new Color(255, 100, 0, 65));
 
@@ -162,17 +214,27 @@ public class MutantBoss extends Zombie {
             );
         }
 
-        // Boss always remains purple.
+        // Boss remains purple.
         g2.setColor(new Color(74, 20, 140));
-        g2.fillOval(getX(), getY(), size, size);
+
+        g2.fillOval(
+            getX(),
+            getY(),
+            size,
+            size
+        );
 
         drawHealthBar(g2);
 
         g2.setColor(Color.BLACK);
-        g2.setFont(new Font("Arial", Font.BOLD, 12));
+        g2.setFont(
+            new Font("Arial", Font.BOLD, 12)
+        );
 
         g2.drawString(
-            smashWarningActive ? "BOSS - SMASH!" : "BOSS",
+            isSmashWarningActive()
+                ? "BOSS - SMASH!"
+                : "BOSS",
             getX(),
             getY() + size + 15
         );
