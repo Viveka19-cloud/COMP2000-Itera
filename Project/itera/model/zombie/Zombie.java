@@ -5,6 +5,7 @@ import itera.model.*;
 import itera.model.Character;
 import itera.model.human.*;
 import itera.model.zombie.targeting.*;
+import itera.model.zombie.ai.*;
 
 import java.awt.*;
 import java.util.*;
@@ -16,14 +17,29 @@ public class Zombie extends Character {
         FLANK,
         REGROUP
     }
-
+   
     private AIBehaviour currentBehaviour = AIBehaviour.CHASE;
 
-    private java.util.List<Building> buildings = java.util.List.of();
+    // Movement Strategy Pattern
+    private final MovementStrategy chaseStrategy =
+            new ChaseStrategy();
+
+    private final MovementStrategy flankStrategy =
+            new FlankStrategy();
+
+    private final MovementStrategy regroupStrategy =
+            new RegroupStrategy();
+
+    private MovementStrategy movementStrategy = chaseStrategy;
+
+    private java.util.List<Building> buildings =
+            java.util.List.of();
 
     protected double detectionRange = 500;
 
-    protected TargetingStrategy targetingStrategy = new NearestTarget();
+    // Existing Targeting Strategy Pattern
+    protected TargetingStrategy targetingStrategy =
+            new NearestTarget();
 
     protected static final int DAMAGE = 25;
     protected static final double ATTACK_DISTANCE = 20;
@@ -42,7 +58,9 @@ public class Zombie extends Character {
         }
     }
 
-    public void setBuildings(java.util.List<Building> buildings) {
+    public void setBuildings(
+            java.util.List<Building> buildings) {
+
         this.buildings = buildings == null
                 ? java.util.List.of()
                 : buildings;
@@ -52,7 +70,9 @@ public class Zombie extends Character {
         return targetingStrategy;
     }
 
-    public void setTargetingStrategy(TargetingStrategy strategy) {
+    public void setTargetingStrategy(
+            TargetingStrategy strategy) {
+
         this.targetingStrategy = Objects.requireNonNull(
                 strategy,
                 "Targeting strategy is required"
@@ -61,6 +81,37 @@ public class Zombie extends Character {
 
     public AIBehaviour getCurrentBehaviour() {
         return currentBehaviour;
+    }
+
+    public int getFlankDirection() {
+        return flankDirection;
+    }
+
+    public void moveInDirection(double dx, double dy) {
+        moveDirection(dx, dy);
+    }
+
+    // Select the appropriate movement algorithm.
+    private void setBehaviour(AIBehaviour behaviour) {
+
+        currentBehaviour = behaviour;
+
+        switch (behaviour) {
+
+            case CHASE:
+                movementStrategy = chaseStrategy;
+                break;
+
+            case FLANK:
+                movementStrategy = flankStrategy;
+                System.out.println("FLANK strategy activated!");
+                break;
+
+            case REGROUP:
+                movementStrategy = regroupStrategy;
+                System.out.println("REGROUP strategy activated!");
+                break;
+        }
     }
 
     public Human update(
@@ -76,17 +127,19 @@ public class Zombie extends Character {
         Human target = findTarget(humans);
 
         if (target == null || target.isSheltered()) {
-            currentBehaviour = AIBehaviour.CHASE;
+            setBehaviour(AIBehaviour.CHASE);
             return null;
         }
 
-        double distance = position.distanceTo(target.getPosition());
+        double distance =
+                position.distanceTo(target.getPosition());
 
         if (distance > detectionRange) {
             return null;
         }
 
         if (distance <= ATTACK_DISTANCE) {
+
             boolean attacked = performAttack(target);
 
             if (attacked && !target.isAlive()) {
@@ -101,24 +154,14 @@ public class Zombie extends Character {
         double previousX = position.getX();
         double previousY = position.getY();
 
-        switch (currentBehaviour) {
-            case FLANK:
-                flank(target);
-                break;
-
-            case REGROUP:
-                regroup(target, humans);
-                break;
-
-            case CHASE:
-            default:
-                chase(target);
-                break;
-        }
+        // Strategy Pattern:
+        // Delegate movement to the selected algorithm.
+        movementStrategy.move(this, target);
 
         double nextX = position.getX();
         double nextY = position.getY();
 
+        // Preserve existing obstacle avoidance.
         if (isBlocked(nextX, nextY, safePoint)) {
 
             position.setX(nextX);
@@ -158,7 +201,7 @@ public class Zombie extends Character {
 
         behaviourTicks++;
 
-        // Avoid switching strategies every frame.
+        // Avoid switching behaviour every frame.
         if (behaviourTicks < 25) {
             return;
         }
@@ -168,6 +211,7 @@ public class Zombie extends Character {
         int nearbySoldiers = 0;
 
         for (Human human : humans) {
+
             if (!human.isAlive() || human.isSheltered()) {
                 continue;
             }
@@ -180,83 +224,42 @@ public class Zombie extends Character {
             }
         }
 
+        // Change direction if repeatedly blocked.
         if (blockedTicks >= 3) {
-            currentBehaviour = AIBehaviour.FLANK;
+
+            setBehaviour(AIBehaviour.FLANK);
+
             flankDirection *= -1;
             blockedTicks = 0;
             return;
         }
 
+        // Flank when multiple soldiers are nearby.
         if (nearbySoldiers >= 2) {
-            currentBehaviour = AIBehaviour.FLANK;
+            setBehaviour(AIBehaviour.FLANK);
             return;
         }
 
+        // Retreat when injured near a soldier.
         if (nearbySoldiers == 1
                 && getHealthRatio() < 0.5) {
 
-            currentBehaviour = AIBehaviour.REGROUP;
+            setBehaviour(AIBehaviour.REGROUP);
             return;
         }
 
-        currentBehaviour = AIBehaviour.CHASE;
+        // Default movement.
+        setBehaviour(AIBehaviour.CHASE);
     }
 
     private double getHealthRatio() {
+
         return Math.max(
                 0.0,
                 Math.min(
                         1.0,
                         health / (double) getMaxHealth()
                 )
-        );
-    }
-
-    private void flank(Human target) {
-
-        double dx = target.getX() - position.getX();
-        double dy = target.getY() - position.getY();
-
-        double distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance == 0) {
-            return;
-        }
-
-        double forwardX = dx / distance;
-        double forwardY = dy / distance;
-
-        double sideX = -forwardY * flankDirection;
-        double sideY = forwardX * flankDirection;
-
-        double flankStrength = distance > 65 ? 0.7 : 0.2;
-
-        moveDirection(
-                forwardX + sideX * flankStrength,
-                forwardY + sideY * flankStrength
-        );
-    }
-
-    private void regroup(
-            Human target,
-            ArrayList<Human> humans) {
-
-        // Without a shared zombie list, regrouping uses
-        // a defensive movement away from the target.
-        // World.java integration will enable real grouping.
-
-        double dx = position.getX() - target.getX();
-        double dy = position.getY() - target.getY();
-
-        double distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance == 0) {
-            return;
-        }
-
-        moveDirection(
-                dx / distance,
-                dy / distance
         );
     }
 
@@ -275,6 +278,7 @@ public class Zombie extends Character {
     }
 
     protected Human findTarget(ArrayList<Human> humans) {
+
         return targetingStrategy
                 .chooseTarget(this, humans)
                 .orElse(null);
@@ -288,10 +292,14 @@ public class Zombie extends Character {
         target.takeDamage(DAMAGE);
     }
 
+    // Retained for existing callers and ChaseStrategy.
     public void chase(Character target) {
 
-        double directionX = target.getX() - position.getX();
-        double directionY = target.getY() - position.getY();
+        double directionX =
+                target.getX() - position.getX();
+
+        double directionY =
+                target.getY() - position.getY();
 
         double distance = Math.sqrt(
                 directionX * directionX
@@ -317,6 +325,7 @@ public class Zombie extends Character {
         }
 
         for (Building building : buildings) {
+
             if (building.overlaps(x, y, size)) {
                 return true;
             }
@@ -346,43 +355,42 @@ public class Zombie extends Character {
         }
     }
 
- @Override
-public void draw(Graphics g) {
-    g.setColor(Color.RED);
-    g.fillOval(getX(), getY(), size, size);
+    @Override
+    public void draw(Graphics g) {
 
-    drawTypeLabel(g, "Z");
-}
+        g.setColor(Color.RED);
+        g.fillOval(getX(), getY(), size, size);
+
+        drawTypeLabel(g, "Z");
+    }
 
     public int getMaxHealth() {
         return 100;
     }
 
-    
-protected void drawHealthBar(Graphics g) {
+    protected void drawHealthBar(Graphics g) {
 
-    int width = Math.max(24, size);
-    int barX = getX() + (size - width) / 2;
-    int barY = getY() - 9;
+        int width = Math.max(24, size);
+        int barX = getX() + (size - width) / 2;
+        int barY = getY() - 9;
 
-    int remaining = (int) Math.round(
-        width * Math.max(
-            0,
-            Math.min(1.0, health / (double) getMaxHealth())
-        )
-    );
+        int remaining = (int) Math.round(
+                width * Math.max(
+                        0,
+                        Math.min(
+                                1.0,
+                                health / (double) getMaxHealth()
+                        )
+                )
+        );
 
-    // Dark background for missing health
-    g.setColor(Color.DARK_GRAY);
-    g.fillRect(barX, barY, width, 4);
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(barX, barY, width, 4);
 
-    // RED health for zombies
-    g.setColor(Color.RED);
-    g.fillRect(barX, barY, remaining, 4);
-}
+        g.setColor(Color.RED);
+        g.fillRect(barX, barY, remaining, 4);
+    }
 
-
-        
     protected void drawTypeLabel(
             Graphics g,
             String label) {

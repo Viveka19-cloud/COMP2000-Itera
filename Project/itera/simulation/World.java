@@ -384,4 +384,12 @@ public class World {
 
         return ZombieType.of(zombie).getLabel();
     }
+    /**
+ * Analyse living zombies using a custom Java Collector.
+ */
+public ZombieThreatReport getZombieThreatReport() {
+    return getZombies().stream()
+        .filter(Zombie::isAlive)
+        .collect(ZombieThreatCollector.toThreatReport());
+}
 }
