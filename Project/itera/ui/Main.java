@@ -1299,18 +1299,25 @@ public class Main extends JPanel {
         styleDarkLabel(medicLabel);
         buttons.add(medicLabel);
         JComboBox<String> treatment = new JComboBox<>(new String[] {
-            "Soldiers first", "Most injured first"
+            "Soldiers first", "Most injured first", "Critical first"
         });
         treatment.setBackground(new Color(36, 57, 77));
         treatment.setForeground(Color.WHITE);
         treatment.setToolTipText(
-            "Choose who medics help first; critical self-healing still takes priority."
+            "Choose who medics help first; Critical first prioritises 35 HP or less. "
+                + "Critical self-healing still takes priority."
         );
-        treatment.addActionListener(event -> world.setTreatmentStrategy(
-            treatment.getSelectedIndex() == 0
-                ? new itera.model.human.treatment.SoldiersFirstStrategy()
-                : new itera.model.human.treatment.MostInjuredStrategy()
-        ));
+        treatment.addActionListener(event -> {
+            itera.model.human.treatment.TreatmentStrategy selectedStrategy =
+                switch (treatment.getSelectedIndex()) {
+                    case 0 -> new itera.model.human.treatment.SoldiersFirstStrategy();
+                    case 1 -> new itera.model.human.treatment.MostInjuredStrategy();
+                    case 2 -> new itera.model.human.treatment.CriticalFirstStrategy();
+                    default -> throw new IllegalStateException("Unknown medic priority");
+                };
+
+            world.setTreatmentStrategy(selectedStrategy);
+        });
         buttons.add(treatment);
 
         JPanel upper = new JPanel(new BorderLayout(0, 5));
