@@ -70,6 +70,25 @@ public final class Week811Checks {
         check(medic.selectPatient(List.of(near, critical)).orElseThrow() == near, "Lambda can supply ranking behaviour");
         rejects(NullPointerException.class, () -> medic.setTreatmentStrategy(null));
 
+        // Critical-first Strategy Pattern: urgent patients before stable patients.
+        medic.setTreatmentStrategy(new CriticalFirstStrategy());
+        check(medic.selectPatient(patients).orElseThrow() == critical,
+            "Critical-first prioritises a patient with 35 HP or less");
+
+        // Within the critical group, distance wins over lowest health.
+        Civilian nearerCritical = injured(new Civilian(5, 0), 75);   // 25 HP
+        Civilian fartherCritical = injured(new Civilian(60, 0), 90); // 10 HP
+        check(medic.selectPatient(List.of(fartherCritical, nearerCritical)).orElseThrow() == nearerCritical,
+            "Critical-first chooses the nearer critically injured patient");
+
+        // If no patient is critical, use distance to rank eligible patients.
+        Civilian nearerStable = injured(new Civilian(5, 0), 30);    // 70 HP
+        Civilian fartherStable = injured(new Civilian(60, 0), 60);  // 40 HP
+        check(medic.selectPatient(List.of(fartherStable, nearerStable)).orElseThrow() == nearerStable,
+            "Critical-first falls back to nearest patient when nobody is critical");
+        check(medic.selectPatient(List.of()).isEmpty(),
+            "Critical-first handles an empty patient list");
+
         World world = new World();
         world.addCharacter(medic);
         TreatmentStrategy policy = new MostInjuredStrategy();
@@ -331,7 +350,12 @@ public final class Week811Checks {
                 Main simulation = new Main(new SimulationSettings(20, 10));
                 JPanel controls = simulation.getSimulationControls();
                 JComboBox<?> choice = component(controls, JComboBox.class);
-                check(choice != null && choice.getItemCount() == 2, "Both choices visible");
+                check(choice != null && choice.getItemCount() == 3,
+                    "All three medic strategies visible");
+                check("Soldiers first".equals(choice.getItemAt(0))
+                        && "Most injured first".equals(choice.getItemAt(1))
+                        && "Critical first".equals(choice.getItemAt(2)),
+                    "Medic priority dropdown has the expected strategy choices");
 
                 var field = Main.class.getDeclaredField("world");
                 field.setAccessible(true);
@@ -417,6 +441,18 @@ public final class Week811Checks {
 
                 choice.setSelectedIndex(0);
                 check(uiWorld.findCharacters(Medic.class, m -> m.getTreatmentStrategy() instanceof SoldiersFirstStrategy).size() == 8, "Switch back applies to all medics");
+
+                // Verify that the newly added runtime Strategy reaches all medics.
+                choice.setSelectedIndex(2);
+                check(uiWorld.findCharacters(Medic.class,
+                    m -> m.getTreatmentStrategy() instanceof CriticalFirstStrategy).size() == 8,
+                    "UI switches every existing medic to Critical First");
+
+                // Switching back still works after selecting the new policy.
+                choice.setSelectedIndex(0);
+                check(uiWorld.findCharacters(Medic.class,
+                    m -> m.getTreatmentStrategy() instanceof SoldiersFirstStrategy).size() == 8,
+                    "Existing medic strategy still works after Critical First");
 
                 simulation.setSize(1200, 800);
                 var update = Main.class.getDeclaredMethod("updateSimulation");
