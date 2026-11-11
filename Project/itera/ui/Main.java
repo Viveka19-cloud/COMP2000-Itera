@@ -162,6 +162,9 @@ public class Main extends JPanel {
     private final JLabel zombieTypeSummary =
         new JLabel("Zombie Types: Loading...", SwingConstants.CENTER);
 
+    private final JLabel zombieThreatSummary =
+        new JLabel("Zombie Threat: Loading...", SwingConstants.CENTER);
+
     private void refreshPopulationSummary() {
 
         String summary = world.populationSnapshot()
@@ -221,6 +224,28 @@ public class Main extends JPanel {
         zombieTypeSummary.setText(
             "Zombie Types  |  " + breakdown
         );
+
+        ZombieThreatReport report = world.getZombieThreatReport();
+
+        zombieThreatSummary.setText(
+            "Zombie AI  |  "
+                + "Alive: " + report.totalZombies()
+                + "  |  Chase: " + report.chasing()
+                + "  |  Flank: " + report.flanking()
+                + "  |  Regroup: " + report.regrouping()
+                + "  |  Injured: " + report.injured()
+                + "  |  Threat: " + report.getThreatLevel()
+                + " (" + report.threatScore() + ")"
+        );
+
+        switch (report.getThreatLevel()) {
+            case "HIGH" ->
+                zombieThreatSummary.setForeground(new Color(255, 106, 106));
+            case "MEDIUM" ->
+                zombieThreatSummary.setForeground(new Color(255, 196, 80));
+            default ->
+                zombieThreatSummary.setForeground(new Color(100, 239, 128));
+        }
     }
 
     public Main() {
@@ -1232,6 +1257,7 @@ public class Main extends JPanel {
         styleDarkLabel(populationSummary);
         styleDarkLabel(zombieTypeSummary);
         styleDarkLabel(battleEvents);
+        styleDarkLabel(zombieThreatSummary);
         populationSummary.setHorizontalAlignment(SwingConstants.LEFT);
         zombieTypeSummary.setHorizontalAlignment(SwingConstants.LEFT);
         safeZoneThreat.setHorizontalAlignment(SwingConstants.RIGHT);
@@ -1255,6 +1281,13 @@ public class Main extends JPanel {
         cell.gridx = 1;
         cell.weightx = 0.28;
         status.add(battleEvents, cell);
+
+        cell.gridx = 0;
+        cell.gridy = 2;
+        cell.gridwidth = 2;
+        cell.weightx = 1.0;
+        status.add(zombieThreatSummary, cell);
+        cell.gridwidth = 1;
 
         // Row 4: speed, pause, and medic priority, centred.
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 4));
@@ -1914,6 +1947,5 @@ public class Main extends JPanel {
         );
     }
 }
-
 
 
